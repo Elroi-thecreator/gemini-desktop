@@ -1,0 +1,40 @@
+id: PROD-MODEL-001
+type: product_standard
+title: Gemini CLI Official Model Routing & Categorization Standard
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: product_team
+
+applies_to:
+  - frontend
+  - backend
+
+rule:
+  "Gemini Desktop model options must adhere to the official Gemini CLI `/model` command documentation (Auto, Gemini 3, Gemini 2.5, Flash-Lite, and Manual selection)."
+
+do:
+  - "Support Auto mode (`auto` for Gemini 3 and `auto-gemini-2.5` for Gemini 2.5) to let the CLI automatically balance speed and reasoning."
+  - "Expose Gemini 3 models (`gemini-3-pro-preview`, `gemini-3-flash-preview`)."
+  - "Expose Gemini 2.5 models (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`)."
+  - "Maintain legacy options (`gemini-1.5-pro`, `gemini-1.5-flash`) for backward compatibility."
+  - "Provide a Manual custom model input allowing users to specify any arbitrary model identifier or fine-tuned endpoint."
+
+dont:
+  - "Do not lock the user into a rigid, non-editable model dropdown."
+  - "Do not discard or clear custom model names when toggling workspace settings."
+
+reason:
+  "Aligns Gemini Desktop with the latest Google Gemini CLI capabilities while empowering power users with custom model flags."
+
+source:
+  type: official_documentation
+  url: "https://geminicli.com/docs/cli/model/"
+
+related_items:
+  - PROD-WS-001
+  - DEV-SVELTE-001

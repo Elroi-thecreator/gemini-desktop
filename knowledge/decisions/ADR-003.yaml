@@ -1,0 +1,28 @@
+id: ADR-003
+type: decision_record
+title: Windows Job Objects for Child Process Lifecycle Management
+domain: decisions
+status: accepted
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+context:
+  "CLI processes and sub-agents spawned by desktop chat applications risk becoming zombie/orphaned processes consuming CPU and system resources when the desktop application abruptly crashes or is closed."
+
+decision:
+  "We leveraged native Win32 Job Objects with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` configured via `windows-sys`."
+
+consequences:
+  positive:
+    - "Windows kernel automatically cleans up all child and grandchild processes when the main job handle closes."
+    - "Eliminates zombie processes entirely without requiring fragile exit signal traps."
+  negative:
+    - "Windows-specific API requiring conditional compilation (`#[cfg(target_os = 'windows')]`)."
+
+related_items:
+  - ARCH-PROC-001
+  - ARCH-ACP-001

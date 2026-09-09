@@ -1,0 +1,36 @@
+id: PROD-WS-001
+type: product_standard
+title: Workspace Context Profiles & Working Directory Isolation
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: product_team
+
+applies_to:
+  - frontend
+  - backend
+  - database
+
+rule:
+  "Workspaces provide isolated context profiles. Each workspace binds to a specific directory path, a preferred model, and optional custom system instructions."
+
+do:
+  - "Seed exactly one default workspace (`Personal`) on initial install."
+  - "Allow users to create, edit, and delete custom workspace profiles via the Workspace Management modal."
+  - "Pass the workspace's target working directory when spawning the Gemini CLI process so project-level `GEMINI.md` files are recognized automatically."
+  - "Enforce cascade deletion of associated chat sessions and messages when a workspace profile is deleted."
+
+dont:
+  - "Do not seed cluttered or redundant demo workspaces by default."
+  - "Do not allow deleting the currently active workspace without switching to an existing profile first."
+
+reason:
+  "Clean workspace boundaries allow developers to switch between multiple repositories and projects with isolated histories and context."
+
+related_items:
+  - ARCH-DATA-001
+  - PROD-MODEL-001

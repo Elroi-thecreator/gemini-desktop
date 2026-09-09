@@ -1,0 +1,39 @@
+id: ARCH-SYS-001
+type: architecture_standard
+title: Tauri v2 Native Desktop & SvelteKit Hybrid Architecture
+domain: architecture
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+applies_to:
+  - backend
+  - frontend
+  - build_system
+
+rule:
+  "Gemini Desktop is built as a native desktop application using Tauri v2. The frontend is an SPA compiled via SvelteKit with @sveltejs/adapter-static to `build/`, while the backend is an asynchronous Rust application managing OS processes, local storage, and the Gemini CLI bridge."
+
+do:
+  - "Keep frontend completely static (`adapter-static` with `fallback: 'index.html'`)."
+  - "Communicate between frontend and Rust exclusively through Tauri's strongly typed `invoke` commands and event emitters (`app.emit(...)`)."
+  - "Store all runtime state requiring cross-session persistence in the local SQLite database."
+  - "Use Svelte 5 runes (`$state`, `$derived`, `$effect`, `$props`) for UI reactive state."
+
+dont:
+  - "Do not use Node.js server runtimes in production desktop distribution."
+  - "Do not perform heavy filesystem, shell process management, or database queries in the webview frontend; delegate all system operations to Rust commands."
+
+reason:
+  "Tauri v2 provides a tiny binary footprint (~6 MB), near-instant startup time, low RAM consumption, and direct access to native OS facilities while allowing modern reactive web UI development."
+
+related_items:
+  - ARCH-ACP-001
+  - ARCH-PROC-001
+  - DEV-SVELTE-001
+  - DEV-RUST-001
+  - ADR-001

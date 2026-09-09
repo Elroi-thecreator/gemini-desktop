@@ -1,0 +1,29 @@
+id: ADR-002
+type: decision_record
+title: Embedded SQLite Database with FTS5 for Local-First Persistence
+domain: decisions
+status: accepted
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+context:
+  "The desktop application required an offline-capable, local storage mechanism for workspaces, sessions, message history, and prompt templates with full-text search capability."
+
+decision:
+  "We selected embedded SQLite via `rusqlite` with bundled FTS5 full-text search extension enabled."
+
+consequences:
+  positive:
+    - "Zero cloud database fees and zero network latency."
+    - "Complete user privacy—no prompt data ever leaves the local machine."
+    - "Sub-millisecond full-text search over millions of tokens with FTS5 virtual tables and automated triggers."
+  negative:
+    - "Cross-device synchronization requires manual export or external file syncing."
+
+related_items:
+  - ARCH-DATA-001
+  - DEV-RUST-001

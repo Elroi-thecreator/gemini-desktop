@@ -1,0 +1,36 @@
+id: DEV-TEST-001
+type: development_standard
+title: Automated Verification, svelte-check & Cargo Test Standards
+domain: development
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: quality_assurance
+
+applies_to:
+  - backend
+  - frontend
+  - ci_cd
+
+rule:
+  "Every change to the codebase must pass type validation (`npm run check`), production frontend compilation (`npm run build`), and Rust backend unit tests (`cargo test --lib`) before checking into git."
+
+do:
+  - "Run `svelte-kit sync && svelte-check --tsconfig ./tsconfig.json` to verify TypeScript and template integrity."
+  - "Maintain in-memory SQLite unit tests in `database.rs` to verify table initialization, default seeding, cascades, and FTS5 search."
+  - "Run `npm run build` to verify `@sveltejs/adapter-static` successfully emits all bundled HTML, JS, and CSS files."
+
+dont:
+  - "Do not disable or bypass compiler warnings or type checks using `@ts-ignore` without documented justification."
+  - "Do not commit changes with failing Rust tests."
+
+reason:
+  "Automated gate checks prevent broken production binaries and ensure continuous release reliability across all platforms."
+
+related_items:
+  - DEV-SVELTE-001
+  - DEV-RUST-001
+  - ADR-004

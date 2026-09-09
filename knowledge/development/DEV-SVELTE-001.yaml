@@ -1,0 +1,36 @@
+id: DEV-SVELTE-001
+type: development_standard
+title: Svelte 5 Runes State Management & Tailwind CSS v4 Component Standard
+domain: development
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: frontend_team
+
+applies_to:
+  - frontend
+  - components
+
+rule:
+  "Frontend development must use Svelte 5 runes (`$state`, `$derived`, `$effect`, `$props`) and Tailwind CSS v4 utility classes. Components must be modular, accessible, and responsive."
+
+do:
+  - "Use `$props()` for component inputs and `$state()` for local reactive state."
+  - "Provide proper accessible labels (`<label for='...'>` + `<input id='...'>`) for all form controls."
+  - "Use Tailwind CSS v4 theme colors (`slate-*`, `sky-*`, `emerald-*`, `rose-*`) for consistent dark-mode UI design."
+  - "Sanitize and render markdown safely with code syntax highlighting using `marked` and `highlight.js`."
+  - "Ensure streaming token updates append smoothly without triggering layout jank or memory leaks."
+
+dont:
+  - "Do not use legacy Svelte 3/4 `export let` syntax or stores (`writable`) when modern runes are available."
+  - "Do not use inline arbitrary style attributes when Tailwind utility classes suffice."
+
+reason:
+  "Svelte 5 runes provide fine-grained reactivity, reduced boilerplate, and optimal bundle size for desktop SPAs."
+
+related_items:
+  - ARCH-SYS-001
+  - DEV-TEST-001

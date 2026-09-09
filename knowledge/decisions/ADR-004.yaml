@@ -1,0 +1,28 @@
+id: ADR-004
+type: decision_record
+title: GitHub Actions Tag-Based CI/CD for Automated Windows Distribution
+domain: decisions
+status: accepted
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: devops_and_releases
+
+context:
+  "The application required an automated, reproducible build pipeline to compile and bundle Windows executables and installers without manual local compilation steps."
+
+decision:
+  "We implemented a GitHub Actions workflow using `tauri-apps/tauri-action` triggered automatically on `v*` tag pushes."
+
+consequences:
+  positive:
+    - "Automated production builds produce both portable `.exe` and `.msi` installers in clean GitHub runner environments."
+    - "Free and unlimited build minutes on public GitHub repositories."
+    - "Zero-click release publication and asset attachment directly to GitHub Releases."
+  negative:
+    - "Requires maintaining GitHub repository secret permissions (`contents: write`)."
+
+related_items:
+  - DEV-TEST-001

@@ -1,0 +1,36 @@
+id: ARCH-DATA-001
+type: architecture_standard
+title: Local-First SQLite Database, Migrations & FTS5 Search Index
+domain: architecture
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+applies_to:
+  - backend
+  - database
+
+rule:
+  "All persistent user state (workspaces, sessions, messages, and prompt templates) must be stored locally in an embedded SQLite database (`gemini_desktop.db`) inside `%LOCALAPPDATA%/GeminiDesktop/`."
+
+do:
+  - "Maintain relational foreign key cascades (`ON DELETE CASCADE`) between workspaces, sessions, and messages."
+  - "Use SQLite FTS5 (`messages_fts`) virtual table with `AFTER INSERT` and `AFTER DELETE` triggers on `messages` for high-performance full-text search."
+  - "Protect SQLite connection access across async tasks using thread-safe synchronization (`Mutex<Connection>`)."
+  - "Seed the default `Personal` workspace only once on empty database initialization, cleaning up legacy test defaults."
+
+dont:
+  - "Do not send chat history, workspace credentials, or user prompt content to any external cloud database."
+  - "Do not store database files in volatile temporary directories or directly inside the repository working tree."
+
+reason:
+  "Local-first SQLite storage guarantees privacy, offline availability, zero configuration, zero cloud database costs, and millisecond full-text search indexing."
+
+related_items:
+  - ARCH-SYS-001
+  - DEV-RUST-001
+  - ADR-002

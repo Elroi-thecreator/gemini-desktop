@@ -1,0 +1,56 @@
+# Gemini Desktop Master Knowledge Graph & Index
+system_name: GeminiDesktop
+repository_root: "c:/AIFiles/gemini-desktop"
+knowledge_units_count: 14
+last_updated: "2026-09-10"
+
+knowledge_units:
+  architecture:
+    - id: ARCH-SYS-001
+      file: "knowledge/architecture/ARCH-SYS-001.yaml"
+      title: "Tauri v2 Native Desktop & SvelteKit Hybrid Architecture"
+    - id: ARCH-ACP-001
+      file: "knowledge/architecture/ARCH-ACP-001.yaml"
+      title: "Agent Client Protocol (ACP) JSON-RPC Streaming & Tool Intercepts"
+    - id: ARCH-PROC-001
+      file: "knowledge/architecture/ARCH-PROC-001.yaml"
+      title: "Windows Job Objects Process Supervision & Cleanup Standard"
+    - id: ARCH-DATA-001
+      file: "knowledge/architecture/ARCH-DATA-001.yaml"
+      title: "Local-First SQLite Database, Migrations & FTS5 Search Index"
+
+  development:
+    - id: DEV-SVELTE-001
+      file: "knowledge/development/DEV-SVELTE-001.yaml"
+      title: "Svelte 5 Runes State Management & Tailwind CSS v4 Component Standard"
+    - id: DEV-RUST-001
+      file: "knowledge/development/DEV-RUST-001.yaml"
+      title: "Rust Backend Command Pattern, Async Tokio & IPC Serialization"
+    - id: DEV-TEST-001
+      file: "knowledge/development/DEV-TEST-001.yaml"
+      title: "Automated Verification, svelte-check & Cargo Test Standards"
+
+  product:
+    - id: PROD-MODEL-001
+      file: "knowledge/product/PROD-MODEL-001.yaml"
+      title: "Gemini CLI Official Model Routing & Categorization Standard"
+    - id: PROD-TOOL-001
+      file: "knowledge/product/PROD-TOOL-001.yaml"
+      title: "Interactive Tool Permission Approval & Safe System Execution"
+    - id: PROD-WS-001
+      file: "knowledge/product/PROD-WS-001.yaml"
+      title: "Workspace Context Profiles & Working Directory Isolation"
+
+  decisions:
+    - id: ADR-001
+      file: "knowledge/decisions/ADR-001.yaml"
+      title: "Selection of Tauri v2 with Rust and SvelteKit 2"
+    - id: ADR-002
+      file: "knowledge/decisions/ADR-002.yaml"
+      title: "Embedded SQLite Database with FTS5 for Local-First Persistence"
+    - id: ADR-003
+      file: "knowledge/decisions/ADR-003.yaml"
+      title: "Windows Job Objects for Child Process Lifecycle Management"
+    - id: ADR-004
+      file: "knowledge/decisions/ADR-004.yaml"
+      title: "GitHub Actions Tag-Based CI/CD for Automated Windows Distribution"

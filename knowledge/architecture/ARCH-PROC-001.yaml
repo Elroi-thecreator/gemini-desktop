@@ -1,0 +1,36 @@
+id: ARCH-PROC-001
+type: architecture_standard
+title: Windows Job Objects Process Supervision & Cleanup Standard
+domain: architecture
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+applies_to:
+  - backend
+  - process_manager
+
+rule:
+  "On Windows, all spawned child processes (including Gemini CLI and subordinate tool processes) must be assigned to an OS Job Object configured with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE."
+
+do:
+  - "Initialize a Win32 Job Object handle (`CreateJobObjectW`) during ProcessSupervisor startup."
+  - "Configure `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` using `SetInformationJobObject`."
+  - "Assign every spawned child process handle to this Job Object immediately upon creation (`AssignProcessToJobObject`)."
+  - "Wrap Windows handles safely with `Send` and `Sync` implementations."
+
+dont:
+  - "Do not leave child processes running in the background when the user closes the main desktop window."
+  - "Do not rely exclusively on SIGTERM or soft cancellation mechanisms that fail during abrupt application termination."
+
+reason:
+  "Windows Job Objects guarantee at the OS kernel level that all child processes and their spawned sub-processes are immediately killed when the parent app terminates, preventing memory leaks and orphaned background processes."
+
+related_items:
+  - ARCH-SYS-001
+  - ARCH-ACP-001
+  - ADR-003

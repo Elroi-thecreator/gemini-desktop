@@ -1,0 +1,30 @@
+id: ADR-001
+type: decision_record
+title: Selection of Tauri v2 with Rust and SvelteKit 2
+domain: decisions
+status: accepted
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+context:
+  "The project needed a native desktop client with high performance, instant startup, low memory usage, and robust OS-level process management capabilities."
+
+decision:
+  "We chose Tauri v2 with Rust for the native desktop layer and SvelteKit 2 / Svelte 5 for the user interface, instead of Electron or Python GUI frameworks."
+
+consequences:
+  positive:
+    - "Resulting binary size is ~6 MB compared to Electron's 100+ MB."
+    - "Memory footprint is significantly lower (~40-60 MB vs 300+ MB)."
+    - "Direct native access to Windows APIs and Job Objects via Rust."
+  negative:
+    - "Requires both Node.js and Rust toolchains during development."
+
+related_items:
+  - ARCH-SYS-001
+  - DEV-SVELTE-001
+  - DEV-RUST-001
