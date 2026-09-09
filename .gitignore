@@ -1,0 +1,63 @@
+# Node & Package Managers
+node_modules/
+package/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# SvelteKit & Vite Build Outputs
+/build/
+/.svelte-kit/
+/.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Distribution & Compiled Binaries
+/dist/
+*.exe
+*.msi
+*.dll
+*.pdb
+
+# Rust & Tauri
+/src-tauri/target/
+**/target/
+/src-tauri/gen/schemas/
+**/*.rs.bk
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite & Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/data/
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+
+# IDE & Editor Settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
