@@ -1,5 +1,13 @@
 <script lang="ts">
-  import type { Workspace, Session, Message, ToolPermissionPayload } from "$lib/types";
+  import type {
+    Workspace,
+    Session,
+    Message,
+    ToolPermissionPayload,
+    WorkspaceFileEntry,
+    AttachmentItem,
+  } from "$lib/types";
+  import FilePickerModal from "$lib/components/FilePickerModal.svelte";
   import { renderMarkdown } from "$lib/markdown";
   import {
     Send,
@@ -12,14 +20,20 @@
     XCircle,
     FileText,
     FileCode,
-    Copy,
-    Check,
+    Paperclip,
+    Folder,
+    File,
+    GitBranch,
+    X,
+    ChevronDown,
+    Plus,
   } from "lucide-svelte";
   import { tick } from "svelte";
 
   let {
     workspace,
     session,
+    workspaceFiles = [],
     messages = [],
     isStreaming = false,
     streamingText = "",
@@ -31,6 +45,7 @@
   }: {
     workspace: Workspace | null;
     session: Session | null;
+    workspaceFiles?: WorkspaceFileEntry[];
     messages: Message[];
     isStreaming: boolean;
     streamingText: string;
@@ -46,6 +61,88 @@
   let textareaElem: HTMLTextAreaElement | null = $state(null);
   let showExportMenu = $state(false);
 
+  // File & Git Attachments State
+  let attachments: AttachmentItem[] = $state([]);
+  let showAttachMenu = $state(false);
+  let showFilePickerModal = $state(false);
+  let filePickerMode: "file" | "directory" = $state("file");
+
+  // Inline @ Mention Autocomplete State
+  let showMentionPopover = $state(false);
+  let mentionQuery = $state("");
+  let mentionMatchStart = $state(0);
+  let mentionSelectedIndex = $state(0);
+  let dismissedMatchStart: number | null = $state(null);
+
+  interface MentionOption {
+    id: string;
+    label: string;
+    insertText: string;
+    title: string;
+    subtitle: string;
+    kind: "file" | "directory" | "git";
+  }
+
+  const gitOptions: MentionOption[] = [
+    {
+      id: "git-diff",
+      label: "@git:diff",
+      insertText: "@git:diff ",
+      title: "Git Diff (@git:diff)",
+      subtitle: "Working directory unstaged changes",
+      kind: "git",
+    },
+    {
+      id: "git-staged",
+      label: "@git:staged",
+      insertText: "@git:staged ",
+      title: "Git Staged (@git:staged)",
+      subtitle: "Staged index changes",
+      kind: "git",
+    },
+    {
+      id: "git-status",
+      label: "@git:status",
+      insertText: "@git:status ",
+      title: "Git Status (@git:status)",
+      subtitle: "Repository status overview",
+      kind: "git",
+    },
+  ];
+
+  let filteredMentionOptions = $derived.by(() => {
+    const q = mentionQuery.toLowerCase().trim();
+    const results: MentionOption[] = [];
+
+    // 1. Git suggestions
+    for (const opt of gitOptions) {
+      if (!q || opt.label.toLowerCase().includes(q) || opt.subtitle.toLowerCase().includes(q)) {
+        results.push(opt);
+      }
+    }
+
+    // 2. Workspace file/directory suggestions
+    if (workspaceFiles && workspaceFiles.length > 0) {
+      for (const f of workspaceFiles) {
+        const relPath = f.relative_path.replace(/\\/g, "/");
+        const label = f.is_dir ? `@${relPath}/` : `@${relPath}`;
+        if (!q || label.toLowerCase().includes(q) || f.name.toLowerCase().includes(q)) {
+          results.push({
+            id: `file-${relPath}`,
+            label,
+            insertText: label + " ",
+            title: f.name + (f.is_dir ? "/" : ""),
+            subtitle: relPath + (f.is_dir ? "/" : ""),
+            kind: f.is_dir ? "directory" : "file",
+          });
+          if (results.length >= 25) break;
+        }
+      }
+    }
+
+    return results;
+  });
+
   function scrollToBottom() {
     if (chatViewport) {
       chatViewport.scrollTop = chatViewport.scrollHeight;
@@ -59,7 +156,110 @@
     }
   });
 
+  function checkMentionTrigger() {
+    if (!textareaElem) return;
+    const cursor = textareaElem.selectionStart;
+    const textBeforeCursor = inputPrompt.slice(0, cursor);
+
+    // Matches e.g. "@", "@src", "@git:", "@comp" right before cursor
+    const match = textBeforeCursor.match(/(?:^|\s)@([^\s]*)$/);
+    if (match) {
+      const matchStart = cursor - match[1].length - 1;
+      // If user previously dismissed the popover for this exact @ mention position, do not reopen
+      if (dismissedMatchStart === matchStart) {
+        showMentionPopover = false;
+        return;
+      }
+      mentionQuery = match[1];
+      mentionMatchStart = matchStart;
+      showMentionPopover = true;
+      mentionSelectedIndex = 0;
+    } else {
+      showMentionPopover = false;
+      dismissedMatchStart = null;
+    }
+  }
+
+  function dismissMentionPopover() {
+    showMentionPopover = false;
+    dismissedMatchStart = mentionMatchStart;
+  }
+
+  function applyMention(option: MentionOption) {
+    if (!textareaElem) return;
+    const cursor = textareaElem.selectionStart;
+    const textBefore = inputPrompt.slice(0, mentionMatchStart);
+    const textAfter = inputPrompt.slice(cursor);
+
+    inputPrompt = textBefore + option.insertText + textAfter;
+    showMentionPopover = false;
+    dismissedMatchStart = null;
+
+    tick().then(() => {
+      if (textareaElem) {
+        const newPos = textBefore.length + option.insertText.length;
+        textareaElem.focus();
+        textareaElem.setSelectionRange(newPos, newPos);
+      }
+    });
+  }
+
+  function addAttachment(item: AttachmentItem) {
+    if (!attachments.some((a) => a.path === item.path)) {
+      attachments = [...attachments, item];
+    }
+    showAttachMenu = false;
+  }
+
+  function removeAttachment(id: string) {
+    attachments = attachments.filter((a) => a.id !== id);
+  }
+
+  function handleAddGitPreset(kind: "diff" | "staged" | "status") {
+    addAttachment({
+      id: "git-" + kind + "-" + Date.now(),
+      name: `@git:${kind}`,
+      path: `git:${kind}`,
+      kind: "git",
+    });
+  }
+
+  function handleCustomPathPrompt() {
+    showAttachMenu = false;
+    const path = prompt("Enter relative or absolute path to attach (e.g. src/main.rs or docs/):");
+    if (path && path.trim()) {
+      const clean = path.trim().replace(/^@/, "");
+      addAttachment({
+        id: "custom-" + Date.now(),
+        name: clean,
+        path: clean,
+        kind: clean.endsWith("/") ? "directory" : "file",
+      });
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
+    if (showMentionPopover && filteredMentionOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        mentionSelectedIndex = (mentionSelectedIndex + 1) % filteredMentionOptions.length;
+        return;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        mentionSelectedIndex =
+          (mentionSelectedIndex - 1 + filteredMentionOptions.length) % filteredMentionOptions.length;
+        return;
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyMention(filteredMentionOptions[mentionSelectedIndex]);
+        return;
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        dismissMentionPopover();
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -71,21 +271,39 @@
 
   function handleSubmit() {
     const trimmed = inputPrompt.trim();
-    if (!trimmed || isStreaming) return;
+    if ((!trimmed && attachments.length === 0) || isStreaming) return;
+
+    let finalPrompt = trimmed;
+
+    // Append attached context chips if not already present in the prompt
+    if (attachments.length > 0) {
+      const unmentioned = attachments.filter((att) => {
+        const ref = `@${att.path}`;
+        return !finalPrompt.includes(ref) && !finalPrompt.includes(att.path);
+      });
+
+      if (unmentioned.length > 0) {
+        const refsText = unmentioned.map((att) => `@${att.path}`).join(" ");
+        finalPrompt = finalPrompt ? `${finalPrompt}\n\n${refsText}` : refsText;
+      }
+    }
+
     inputPrompt = "";
-    onSendPrompt(trimmed);
+    attachments = [];
+    showMentionPopover = false;
+    onSendPrompt(finalPrompt);
   }
 </script>
 
-<div class="flex-1 h-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
+<div class="flex-1 h-screen flex flex-col bg-app text-primary-theme overflow-hidden">
   <!-- Top Bar -->
-  <header class="h-14 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/50 backdrop-blur-sm">
+  <header class="h-14 px-6 border-b border-subtle flex items-center justify-between bg-surface/70 backdrop-blur-xs">
     <div class="flex items-center gap-3 truncate">
-      <h2 class="font-medium text-sm text-slate-200 truncate">
+      <h2 class="font-medium text-sm text-primary-theme truncate">
         {session?.title || "Select or start a new session"}
       </h2>
       {#if workspace}
-        <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-sky-400 font-mono border border-slate-700/50">
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-surface-elevated text-accent-theme font-mono border border-subtle">
           {workspace.name} &bull; {workspace.model}
         </span>
       {/if}
@@ -95,22 +313,22 @@
     <div class="relative">
       <button
         onclick={() => (showExportMenu = !showExportMenu)}
-        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-300 hover:text-white rounded-lg bg-slate-800 hover:bg-slate-700/80 transition-colors border border-slate-700"
+        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default"
       >
         <Download size={14} />
         <span>Export</span>
       </button>
 
       {#if showExportMenu}
-        <div class="absolute right-0 mt-1.5 w-40 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 z-30 text-xs">
+        <div class="absolute right-0 mt-1.5 w-40 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-30 text-xs">
           <button
             onclick={() => {
               showExportMenu = false;
               onExport("md");
             }}
-            class="w-full px-3 py-1.5 text-left hover:bg-slate-700 text-slate-200 flex items-center gap-2"
+            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2"
           >
-            <FileText size={14} class="text-sky-400" />
+            <FileText size={14} class="text-accent-theme" />
             <span>Markdown (.md)</span>
           </button>
           <button
@@ -118,9 +336,9 @@
               showExportMenu = false;
               onExport("txt");
             }}
-            class="w-full px-3 py-1.5 text-left hover:bg-slate-700 text-slate-200 flex items-center gap-2"
+            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2"
           >
-            <FileText size={14} class="text-slate-400" />
+            <FileText size={14} class="text-muted-theme" />
             <span>Plaintext (.txt)</span>
           </button>
           <button
@@ -128,7 +346,7 @@
               showExportMenu = false;
               onExport("json");
             }}
-            class="w-full px-3 py-1.5 text-left hover:bg-slate-700 text-slate-200 flex items-center gap-2"
+            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2"
           >
             <FileText size={14} class="text-emerald-400" />
             <span>Raw JSON</span>
@@ -141,13 +359,13 @@
   <!-- Messages Viewport -->
   <div bind:this={chatViewport} class="flex-1 overflow-y-auto p-6 space-y-6">
     {#if messages.length === 0 && !isStreaming}
-      <div class="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-20 text-slate-400">
-        <div class="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 mb-4 shadow-inner">
+      <div class="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-20 text-muted-theme">
+        <div class="w-12 h-12 rounded-2xl bg-accent-subtle border border-accent-subtle flex items-center justify-center text-accent-theme mb-4 shadow-inner">
           <Sparkles size={24} />
         </div>
-        <h3 class="text-base font-semibold text-slate-200 mb-1">What would you like to build?</h3>
-        <p class="text-xs text-slate-400 leading-relaxed mb-6">
-          Start a conversation in the <span class="text-sky-400 font-medium">{workspace?.name}</span> workspace. Gemini CLI will automatically use this directory's files and context.
+        <h3 class="text-base font-semibold text-primary-theme mb-1">What would you like to build?</h3>
+        <p class="text-xs text-secondary-theme leading-relaxed mb-6">
+          Start a conversation in the <span class="text-accent-theme font-medium">{workspace?.name}</span> workspace. Gemini CLI will automatically use this directory's files and context.
         </p>
       </div>
     {/if}
@@ -155,12 +373,12 @@
     {#each messages as msg (msg.id)}
       <div class="flex gap-3.5 {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
         {#if msg.role !== 'user'}
-          <div class="w-7 h-7 rounded-lg bg-sky-600/20 text-sky-400 border border-sky-500/30 flex items-center justify-center shrink-0 mt-1">
+          <div class="w-7 h-7 rounded-lg bg-accent-subtle text-accent-theme border border-accent-subtle flex items-center justify-center shrink-0 mt-1">
             <Sparkles size={14} />
           </div>
         {/if}
 
-        <div class="max-w-3xl {msg.role === 'user' ? 'bg-sky-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs shadow-md' : 'bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-slate-200 shadow-sm w-full'}">
+        <div class="max-w-3xl {msg.role === 'user' ? 'bg-bubble-user border border-bubble-user text-primary-theme rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs shadow-xs' : 'bg-bubble-assistant border border-bubble-assistant rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-primary-theme shadow-xs w-full'}">
           {#if msg.role === 'user'}
             <div class="whitespace-pre-wrap leading-relaxed select-text">{msg.content}</div>
           {:else}
@@ -171,7 +389,7 @@
         </div>
 
         {#if msg.role === 'user'}
-          <div class="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center shrink-0 mt-1">
+          <div class="w-7 h-7 rounded-lg bg-surface-elevated text-secondary-theme border border-subtle flex items-center justify-center shrink-0 mt-1">
             <User size={14} />
           </div>
         {/if}
@@ -181,17 +399,17 @@
     <!-- Live Streaming Response -->
     {#if isStreaming}
       <div class="flex gap-3.5 justify-start">
-        <div class="w-7 h-7 rounded-lg bg-sky-600/20 text-sky-400 border border-sky-500/30 flex items-center justify-center shrink-0 mt-1 animate-pulse">
+        <div class="w-7 h-7 rounded-lg bg-accent-subtle text-accent-theme border border-accent-subtle flex items-center justify-center shrink-0 mt-1 animate-pulse">
           <Sparkles size={14} />
         </div>
-        <div class="max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-slate-200 shadow-sm w-full">
+        <div class="max-w-3xl bg-bubble-assistant border border-bubble-assistant rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-primary-theme shadow-xs w-full">
           {#if streamingText}
             <div class="markdown-body">
               {@html renderMarkdown(streamingText)}
             </div>
           {:else}
-            <div class="flex items-center gap-2 text-slate-400 italic">
-              <span class="inline-block w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+            <div class="flex items-center gap-2 text-muted-theme italic">
+              <span class="inline-block w-2 h-2 rounded-full bg-accent-theme animate-ping"></span>
               Thinking...
             </div>
           {/if}
@@ -202,7 +420,7 @@
 
   <!-- Tool Permission Confirmation Banner (ACP) -->
   {#if toolPermission}
-    <div class="mx-6 mb-3 p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl shadow-xl backdrop-blur-sm transition-all duration-200">
+    <div class="mx-6 mb-3 p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl shadow-xl backdrop-blur-xs transition-all duration-200">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-start gap-3">
           <div class="p-2 rounded-lg bg-amber-500/20 text-amber-400 mt-0.5 shrink-0">
@@ -234,16 +452,16 @@
 
       <!-- Locations / Target Paths -->
       {#if toolPermission.locations && (Array.isArray(toolPermission.locations) ? toolPermission.locations.length > 0 : true)}
-        <div class="mt-2.5 p-2 bg-slate-950/70 rounded-lg border border-slate-800/80 text-xs font-mono text-slate-300">
-          <div class="text-[10px] uppercase font-sans font-semibold text-slate-400 mb-1">Target Location:</div>
+        <div class="mt-2.5 p-2 bg-black/50 rounded-lg border border-subtle text-xs font-mono text-secondary-theme">
+          <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Target Location:</div>
           {#if Array.isArray(toolPermission.locations)}
             {#each toolPermission.locations as loc}
-              <div class="truncate select-all text-sky-300">
+              <div class="truncate select-all text-accent-theme">
                 {typeof loc === 'string' ? loc : loc?.path || JSON.stringify(loc)}
               </div>
             {/each}
           {:else}
-            <div class="truncate select-all text-sky-300">
+            <div class="truncate select-all text-accent-theme">
               {typeof toolPermission.locations === 'string' ? toolPermission.locations : toolPermission.locations?.path || JSON.stringify(toolPermission.locations)}
             </div>
           {/if}
@@ -253,13 +471,13 @@
       <!-- Command or Parameters Detail -->
       {#if toolPermission.parameters}
         {#if toolPermission.parameters.command || toolPermission.parameters.cmd}
-          <div class="mt-2.5 p-2.5 bg-slate-950/80 rounded-lg border border-slate-800/80 text-xs font-mono text-emerald-400 overflow-x-auto">
-            <div class="text-[10px] uppercase font-sans font-semibold text-slate-400 mb-1">Command:</div>
+          <div class="mt-2.5 p-2.5 bg-black/60 rounded-lg border border-subtle text-xs font-mono text-emerald-400 overflow-x-auto">
+            <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Command:</div>
             <code>{toolPermission.parameters.command || toolPermission.parameters.cmd}</code>
           </div>
         {:else if typeof toolPermission.parameters === 'object' && Object.keys(toolPermission.parameters).length > 0 && !toolPermission.locations}
-          <div class="mt-2.5 p-2 bg-slate-950/70 rounded-lg border border-slate-800/80 text-xs font-mono text-slate-300 max-h-32 overflow-y-auto">
-            <div class="text-[10px] uppercase font-sans font-semibold text-slate-400 mb-1">Parameters:</div>
+          <div class="mt-2.5 p-2 bg-black/50 rounded-lg border border-subtle text-xs font-mono text-secondary-theme max-h-32 overflow-y-auto">
+            <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Parameters:</div>
             <pre class="text-[11px] whitespace-pre-wrap">{JSON.stringify(toolPermission.parameters, null, 2)}</pre>
           </div>
         {/if}
@@ -271,12 +489,12 @@
           {#each toolPermission.options as opt}
             <button
               onclick={() => onToolResponse(toolPermission.request_id, opt.option_id, opt.kind?.startsWith("allow") ?? true)}
-              class="px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm {
+              class="px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs {
                 opt.kind?.startsWith('allow') || opt.name.toLowerCase().includes('allow')
                   ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold'
                   : opt.kind?.startsWith('reject') || opt.name.toLowerCase().includes('reject') || opt.name.toLowerCase().includes('deny')
                   ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                  : 'bg-surface hover:bg-surface-hover text-secondary-theme border border-theme-default'
               }"
             >
               {#if opt.kind?.startsWith('allow') || opt.name.toLowerCase().includes('allow')}
@@ -300,7 +518,7 @@
           </button>
           <button
             onclick={() => onToolResponse(toolPermission.request_id, undefined, false)}
-            class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+            class="px-3.5 py-1.5 rounded-lg bg-surface hover:bg-surface-hover text-secondary-theme font-semibold text-xs flex items-center gap-1.5 transition-colors border border-theme-default"
           >
             <XCircle size={14} />
             <span>Deny</span>
@@ -311,27 +529,211 @@
   {/if}
 
   <!-- Prompt Input Bar -->
-  <div class="p-4 bg-slate-900 border-t border-slate-800">
-    <div class="max-w-4xl mx-auto relative rounded-xl border border-slate-700/80 bg-slate-950/80 focus-within:border-sky-500 transition-colors shadow-inner">
+  <div class="p-4 bg-surface border-t border-subtle">
+    <div class="max-w-4xl mx-auto relative rounded-xl border border-theme-default bg-app/80 focus-within:border-accent-theme transition-colors shadow-inner">
+      
+      <!-- Inline @ Mention Autocomplete Floating Popover -->
+      {#if showMentionPopover && filteredMentionOptions.length > 0}
+        <div
+          class="fixed inset-0 z-35"
+          onclick={dismissMentionPopover}
+          role="presentation"
+        ></div>
+        <div class="absolute bottom-full left-0 mb-2 w-96 max-h-64 overflow-y-auto bg-surface-elevated border border-subtle rounded-xl shadow-2xl py-1 z-40 text-xs backdrop-blur-md">
+          <div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-theme border-b border-subtle flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <span class="text-accent-theme font-mono font-bold">@</span>
+              <span>Insert Reference</span>
+            </span>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-[9px] opacity-75">↑↓ &bull; Enter/Tab &bull; Esc</span>
+              <button
+                type="button"
+                onclick={dismissMentionPopover}
+                class="p-0.5 rounded text-muted-theme hover:text-primary-theme hover:bg-surface transition-colors cursor-pointer"
+                title="Dismiss (Esc)"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+          {#each filteredMentionOptions as opt, idx (opt.id)}
+            <button
+              type="button"
+              class="w-full px-3 py-2 text-left flex items-center gap-2.5 transition-colors cursor-pointer {idx === mentionSelectedIndex ? 'bg-accent-theme/15 text-accent-theme font-medium border-l-2 border-accent-theme' : 'hover:bg-surface-hover text-secondary-theme'}"
+              onmousedown={(e) => {
+                e.preventDefault();
+                applyMention(opt);
+              }}
+              onmouseenter={() => (mentionSelectedIndex = idx)}
+            >
+              {#if opt.kind === "git"}
+                <GitBranch size={14} class="text-amber-400 shrink-0" />
+              {:else if opt.kind === "directory"}
+                <Folder size={14} class="text-sky-400 shrink-0" />
+              {:else}
+                <FileCode size={14} class="text-accent-theme shrink-0" />
+              {/if}
+              <div class="truncate flex-1">
+                <div class="truncate text-primary-theme text-xs font-mono">{opt.label}</div>
+                <div class="truncate text-[10px] text-muted-theme font-sans">{opt.subtitle}</div>
+              </div>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      <!-- Visual Attachment Chips Row -->
+      {#if attachments.length > 0}
+        <div class="px-3.5 pt-2.5 pb-1.5 flex flex-wrap items-center gap-1.5 border-b border-subtle/60 bg-surface/50 rounded-t-xl">
+          <span class="text-[10px] uppercase font-bold tracking-wider text-muted-theme mr-1 flex items-center gap-1">
+            <Paperclip size={10} class="text-accent-theme" />
+            <span>Attached Context:</span>
+          </span>
+          {#each attachments as att (att.id)}
+            <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-surface-elevated border border-subtle text-xs text-primary-theme shadow-xs">
+              {#if att.kind === "git"}
+                <GitBranch size={12} class="text-amber-400" />
+              {:else if att.kind === "directory"}
+                <Folder size={12} class="text-sky-400" />
+              {:else}
+                <FileCode size={12} class="text-accent-theme" />
+              {/if}
+              <span class="font-mono text-[11px] truncate max-w-[220px]" title={att.path}>{att.name}</span>
+              <button
+                type="button"
+                onclick={() => removeAttachment(att.id)}
+                class="text-muted-theme hover:text-rose-400 p-0.5 rounded transition-colors cursor-pointer"
+                title="Remove attachment"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          {/each}
+          <button
+            type="button"
+            onclick={() => (attachments = [])}
+            class="text-[10px] text-muted-theme hover:text-rose-400 underline ml-1 cursor-pointer transition-colors"
+          >
+            Clear all
+          </button>
+        </div>
+      {/if}
+
       <textarea
         bind:this={textareaElem}
         bind:value={inputPrompt}
         onkeydown={handleKeyDown}
-        placeholder="Type your prompt here... (Shift+Enter for newline, Enter to send)"
+        oninput={checkMentionTrigger}
+        placeholder="Type prompt or use @file, @dir/, @git:diff... (Shift+Enter for newline, Enter to send)"
         rows="3"
-        class="w-full px-3.5 py-2.5 bg-transparent text-slate-100 placeholder-slate-500 text-xs focus:outline-none resize-none font-sans select-text"
+        class="w-full px-3.5 py-2.5 bg-transparent text-primary-theme placeholder:text-muted-theme text-xs focus:outline-none resize-none font-sans select-text"
       ></textarea>
 
-      <div class="flex items-center justify-between px-3 py-2 border-t border-slate-800/60 text-[11px] text-slate-500">
-        <div class="flex items-center gap-2">
-          <span>Working Dir: <span class="text-slate-400 font-mono">{workspace?.path || "C:\\"}</span></span>
+      <div class="flex items-center justify-between px-3 py-2 border-t border-subtle text-[11px] text-muted-theme">
+        <div class="flex items-center gap-2.5 relative">
+          <!-- Attachment Dropdown Action Button -->
+          <div class="relative">
+            <button
+              type="button"
+              onclick={() => (showAttachMenu = !showAttachMenu)}
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors border border-theme-default cursor-pointer text-xs"
+              title="Attach files, directories, or Git context (@)"
+            >
+              <Paperclip size={13} class="text-accent-theme" />
+              <span class="font-medium">Attach</span>
+              <ChevronDown size={11} class="opacity-60" />
+            </button>
+
+            <!-- Attachment Quick Menu -->
+            {#if showAttachMenu}
+              <div
+                class="fixed inset-0 z-30"
+                onclick={() => (showAttachMenu = false)}
+                role="presentation"
+              ></div>
+              <div class="absolute bottom-full left-0 mb-2 w-56 bg-surface-elevated border border-subtle rounded-xl shadow-2xl py-1.5 z-40 text-xs">
+                <button
+                  type="button"
+                  onclick={() => {
+                    showAttachMenu = false;
+                    filePickerMode = "file";
+                    showFilePickerModal = true;
+                  }}
+                  class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
+                >
+                  <File size={14} class="text-accent-theme" />
+                  <span>Attach Workspace File...</span>
+                </button>
+
+                <button
+                  type="button"
+                  onclick={() => {
+                    showAttachMenu = false;
+                    filePickerMode = "directory";
+                    showFilePickerModal = true;
+                  }}
+                  class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
+                >
+                  <Folder size={14} class="text-sky-400" />
+                  <span>Attach Workspace Folder...</span>
+                </button>
+
+                <div class="my-1 border-t border-subtle"></div>
+                <div class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-theme">Git Context</div>
+
+                <button
+                  type="button"
+                  onclick={() => handleAddGitPreset("diff")}
+                  class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
+                >
+                  <GitBranch size={14} class="text-amber-400" />
+                  <span class="font-mono text-[11px]">@git:diff</span>
+                  <span class="text-[10px] text-muted-theme ml-auto">unstaged</span>
+                </button>
+
+                <button
+                  type="button"
+                  onclick={() => handleAddGitPreset("staged")}
+                  class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
+                >
+                  <GitBranch size={14} class="text-emerald-400" />
+                  <span class="font-mono text-[11px]">@git:staged</span>
+                  <span class="text-[10px] text-muted-theme ml-auto">staged</span>
+                </button>
+
+                <button
+                  type="button"
+                  onclick={() => handleAddGitPreset("status")}
+                  class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
+                >
+                  <GitBranch size={14} class="text-sky-400" />
+                  <span class="font-mono text-[11px]">@git:status</span>
+                  <span class="text-[10px] text-muted-theme ml-auto">overview</span>
+                </button>
+
+                <div class="my-1 border-t border-subtle"></div>
+
+                <button
+                  type="button"
+                  onclick={handleCustomPathPrompt}
+                  class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
+                >
+                  <Plus size={14} class="text-muted-theme" />
+                  <span>Custom Path / Ref...</span>
+                </button>
+              </div>
+            {/if}
+          </div>
+
+          <span>Working Dir: <span class="text-secondary-theme font-mono">{workspace?.path || "C:\\"}</span></span>
         </div>
 
         <div class="flex items-center gap-2">
           {#if isStreaming}
             <button
               onclick={onCancelPrompt}
-              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-medium text-xs transition-colors"
+              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-medium text-xs transition-colors cursor-pointer"
             >
               <Square size={12} />
               <span>Stop</span>
@@ -340,8 +742,8 @@
           {:else}
             <button
               onclick={handleSubmit}
-              disabled={!inputPrompt.trim()}
-              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-40 disabled:hover:bg-sky-500 text-slate-950 font-semibold text-xs transition-colors"
+              disabled={!inputPrompt.trim() && attachments.length === 0}
+              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-accent-theme hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent-theme text-white font-semibold text-xs transition-colors shadow-xs cursor-pointer"
             >
               <Send size={12} />
               <span>Send</span>
@@ -352,4 +754,29 @@
       </div>
     </div>
   </div>
+
+  <!-- Workspace File / Folder Picker Modal -->
+  <FilePickerModal
+    isOpen={showFilePickerModal}
+    mode={filePickerMode}
+    workspaceFiles={workspaceFiles || []}
+    onClose={() => (showFilePickerModal = false)}
+    onSelect={(entry) => {
+      addAttachment({
+        id: "att-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
+        name: entry.name + (entry.is_dir ? "/" : ""),
+        path: entry.relative_path.replace(/\\/g, "/") + (entry.is_dir ? "/" : ""),
+        kind: entry.is_dir ? "directory" : "file",
+      });
+    }}
+    onSelectCustomPath={(customPath) => {
+      const clean = customPath.replace(/^@/, "").trim();
+      addAttachment({
+        id: "att-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
+        name: clean,
+        path: clean,
+        kind: clean.endsWith("/") ? "directory" : "file",
+      });
+    }}
+  />
 </div>

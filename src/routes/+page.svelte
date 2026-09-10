@@ -10,12 +10,15 @@
     SearchResult,
     ToolPermissionPayload,
     GeminiEnvStatus,
+    WorkspaceFileEntry,
   } from "$lib/types";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
   import SearchModal from "$lib/components/SearchModal.svelte";
   import WorkspaceModal from "$lib/components/WorkspaceModal.svelte";
   import TemplatesModal from "$lib/components/TemplatesModal.svelte";
+  import ThemeModal from "$lib/components/ThemeModal.svelte";
+  import { themeManager } from "$lib/theme.svelte";
 
   // Reactive State (Svelte 5 Runes)
   let workspaces: Workspace[] = $state([]);
@@ -24,6 +27,7 @@
   let activeSession: Session | null = $state(null);
   let messages: Message[] = $state([]);
   let promptTemplates: PromptTemplate[] = $state([]);
+  let workspaceFiles: WorkspaceFileEntry[] = $state([]);
 
   let isStreaming = $state(false);
   let streamingText = $state("");
@@ -34,12 +38,16 @@
   let showSearchModal = $state(false);
   let showWorkspaceModal = $state(false);
   let showTemplatesModal = $state(false);
+  let showThemeModal = $state(false);
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
   let unlistenError: UnlistenFn | null = null;
 
   onMount(async () => {
+    // 0. Initialize theme
+    themeManager.init();
+
     // 1. Check Gemini environment status
     try {
       envStatus = await invoke<GeminiEnvStatus>("check_gemini_env");
@@ -53,6 +61,7 @@
       if (workspaces.length > 0) {
         activeWorkspace = workspaces[0];
         await loadSessionsForWorkspace(activeWorkspace.id);
+        await loadWorkspaceFiles(activeWorkspace.id);
       }
     } catch (e) {
       console.error("Failed to load workspaces:", e);
@@ -111,6 +120,15 @@
     }
   }
 
+  async function loadWorkspaceFiles(wsId: string) {
+    try {
+      workspaceFiles = await invoke<WorkspaceFileEntry[]>("list_workspace_files", { workspaceId: wsId });
+    } catch (e) {
+      console.warn("Failed to list workspace files:", e);
+      workspaceFiles = [];
+    }
+  }
+
   async function loadSessionsForWorkspace(wsId: string) {
     sessions = await invoke<Session[]>("get_sessions", { workspaceId: wsId });
     if (sessions.length > 0) {
@@ -124,6 +142,7 @@
   async function selectWorkspace(ws: Workspace) {
     activeWorkspace = ws;
     await loadSessionsForWorkspace(ws.id);
+    await loadWorkspaceFiles(ws.id);
   }
 
   async function selectSession(session: Session) {
@@ -272,6 +291,7 @@
     workspaces = await invoke<Workspace[]>("get_workspaces");
     if (activeWorkspace?.id === ws.id) {
       activeWorkspace = ws;
+      await loadWorkspaceFiles(ws.id);
     }
     showWorkspaceModal = false;
   }
@@ -286,7 +306,7 @@
   }
 </script>
 
-<div class="flex h-screen w-screen bg-slate-950 overflow-hidden select-none">
+<div class="flex h-screen w-screen bg-app overflow-hidden select-none">
   <!-- Left Navigation Sidebar -->
   <Sidebar
     {workspaces}
@@ -302,12 +322,14 @@
     onOpenSearch={() => (showSearchModal = true)}
     onOpenTemplates={() => (showTemplatesModal = true)}
     onOpenWorkspaceModal={() => (showWorkspaceModal = true)}
+    onOpenThemeModal={() => (showThemeModal = true)}
   />
 
   <!-- Main Chat Surface -->
   <ChatView
     workspace={activeWorkspace}
     session={activeSession}
+    {workspaceFiles}
     {messages}
     {isStreaming}
     {streamingText}
@@ -346,5 +368,10 @@
     onSelectTemplate={(prompt) => {
       handleSendPrompt(prompt);
     }}
+  />
+
+  <ThemeModal
+    isOpen={showThemeModal}
+    onClose={() => (showThemeModal = false)}
   />
 </div>

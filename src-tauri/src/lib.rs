@@ -43,7 +43,8 @@ pub fn run() {
             respond_tool_permission,
             get_prompts,
             search_history,
-            export_session
+            export_session,
+            list_workspace_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,17 +1,145 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
-:root {
+:root, [data-theme="platinum-dark"] {
   color-scheme: dark;
+  --bg-app: #0b0f19;
+  --bg-sidebar: #111827;
+  --bg-surface: #172033;
+  --bg-surface-elevated: #1e293b;
+  --bg-surface-hover: #26334d;
+  --border-subtle: #1e293b;
+  --border-default: #2d3b55;
+  --border-strong: #475569;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --accent-primary: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(59, 130, 246, 0.16);
+  --accent-border: rgba(59, 130, 246, 0.35);
+  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  --bubble-user: #1a2540;
+  --bubble-user-border: #2c3e6b;
+  --bubble-assistant: #131b2e;
+  --bubble-assistant-border: #1e293b;
+  --code-bg: #070b12;
 }
+
+[data-theme="gemini-aurora"] {
+  color-scheme: dark;
+  --bg-app: #090b14;
+  --bg-sidebar: #0f1222;
+  --bg-surface: #14182e;
+  --bg-surface-elevated: #1a1f3a;
+  --bg-surface-hover: #1e2444;
+  --border-subtle: #1c213d;
+  --border-default: #262c52;
+  --border-strong: #3b4478;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-primary: #8b5cf6;
+  --accent-hover: #7c3aed;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(139, 92, 246, 0.18);
+  --accent-border: rgba(139, 92, 246, 0.35);
+  --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+  --bubble-user: #181c38;
+  --bubble-user-border: #2c3361;
+  --bubble-assistant: #111425;
+  --bubble-assistant-border: #1c213d;
+  --code-bg: #07080e;
+}
+
+[data-theme="platinum-white"] {
+  color-scheme: light;
+  --bg-app: #f8fafc;
+  --bg-sidebar: #f1f5f9;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #f8fafc;
+  --bg-surface-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-default: #cbd5e1;
+  --border-strong: #94a3b8;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --accent-primary: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(37, 99, 235, 0.12);
+  --accent-border: rgba(37, 99, 235, 0.3);
+  --accent-gradient: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  --bubble-user: #e0e7ff;
+  --bubble-user-border: #c7d2fe;
+  --bubble-assistant: #ffffff;
+  --bubble-assistant-border: #e2e8f0;
+  --code-bg: #f1f5f9;
+}
+
+[data-theme="cyber-emerald"] {
+  color-scheme: dark;
+  --bg-app: #081210;
+  --bg-sidebar: #0b1916;
+  --bg-surface: #0f221e;
+  --bg-surface-elevated: #142c27;
+  --bg-surface-hover: #193630;
+  --border-subtle: #152f2a;
+  --border-default: #1e423b;
+  --border-strong: #2a5a51;
+  --text-primary: #ecfdf5;
+  --text-secondary: #a7f3d0;
+  --text-muted: #34d399;
+  --accent-primary: #10b981;
+  --accent-hover: #059669;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(16, 185, 129, 0.16);
+  --accent-border: rgba(16, 185, 129, 0.35);
+  --accent-gradient: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%);
+  --bubble-user: #132823;
+  --bubble-user-border: #20463e;
+  --bubble-assistant: #0c1a17;
+  --bubble-assistant-border: #152f2a;
+  --code-bg: #050c0b;
+}
+
+/* Design Tokens Helper Classes */
+.bg-app { background-color: var(--bg-app); }
+.bg-sidebar { background-color: var(--bg-sidebar); }
+.bg-surface { background-color: var(--bg-surface); }
+.bg-surface-elevated { background-color: var(--bg-surface-elevated); }
+.bg-surface-hover:hover { background-color: var(--bg-surface-hover); }
+
+.border-subtle { border-color: var(--border-subtle); }
+.border-theme-default { border-color: var(--border-default); }
+.border-theme-strong { border-color: var(--border-strong); }
+
+.text-primary-theme { color: var(--text-primary); }
+.text-secondary-theme { color: var(--text-secondary); }
+.text-muted-theme { color: var(--text-muted); }
+
+.bg-accent-theme { background-color: var(--accent-primary); color: var(--accent-text); }
+.hover\:bg-accent-hover:hover { background-color: var(--accent-hover); }
+.text-accent-theme { color: var(--accent-primary); }
+.border-accent-theme { border-color: var(--accent-primary); }
+.bg-accent-subtle { background-color: var(--accent-subtle); }
+.border-accent-subtle { border-color: var(--accent-border); }
+
+.bg-bubble-user { background-color: var(--bubble-user); }
+.border-bubble-user { border-color: var(--bubble-user-border); }
+.bg-bubble-assistant { background-color: var(--bubble-assistant); }
+.border-bubble-assistant { border-color: var(--bubble-assistant-border); }
 
 body {
   margin: 0;
   padding: 0;
   font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
   user-select: none;
   overflow: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Custom scrollbars */
@@ -23,11 +151,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--border-default);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--border-strong);
 }
 
 /* Markdown prose styling */
@@ -44,7 +172,7 @@ body {
   font-weight: 600;
   margin-top: 1.25rem;
   margin-bottom: 0.5rem;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .markdown-body h1 { font-size: 1.5rem; }
@@ -69,16 +197,16 @@ body {
 }
 
 .markdown-body blockquote {
-  border-left: 3px solid #38bdf8;
+  border-left: 3px solid var(--accent-primary);
   padding-left: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   margin: 0.75rem 0;
   font-style: italic;
 }
 
 .markdown-body code:not(pre code) {
-  background-color: #1e293b;
-  color: #38bdf8;
+  background-color: var(--bg-surface);
+  color: var(--accent-primary);
   padding: 0.15rem 0.35rem;
   border-radius: 0.25rem;
   font-family: Consolas, "Cascadia Code", monospace;
@@ -87,8 +215,8 @@ body {
 
 .markdown-body pre {
   margin: 0.75rem 0;
-  background-color: #0b0f19;
-  border: 1px solid #1e293b;
+  background-color: var(--code-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 0.5rem;
   overflow-x: auto;
 }
@@ -100,12 +228,12 @@ body {
 }
 
 .markdown-body th, .markdown-body td {
-  border: 1px solid #334155;
+  border: 1px solid var(--border-subtle);
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
 .markdown-body th {
-  background-color: #1e293b;
+  background-color: var(--bg-surface);
   font-weight: 600;
 }

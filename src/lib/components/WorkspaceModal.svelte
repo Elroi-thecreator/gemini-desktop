@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Workspace } from "$lib/types";
-  import { X, Folder, Plus, Trash2, Check } from "lucide-svelte";
+  import { X, Plus, Trash2, Check } from "lucide-svelte";
 
   interface ModelOptionGroup {
     group: string;
@@ -113,23 +113,23 @@
 
 {#if isOpen}
   <div
-    class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
     onclick={onClose}
     role="presentation"
   >
     <div
-      class="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+      class="w-full max-w-2xl bg-surface border border-theme-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
       onclick={(e) => e.stopPropagation()}
       role="dialog"
       aria-modal="true"
     >
       <!-- Header -->
-      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+      <div class="px-5 py-4 border-b border-subtle flex items-center justify-between bg-surface-elevated/40">
         <div>
-          <h2 class="text-sm font-semibold text-slate-100">Workspace Profiles</h2>
-          <p class="text-xs text-slate-400">Configure directory contexts, models, and custom prompts.</p>
+          <h2 class="text-sm font-semibold text-primary-theme">Workspace Profiles</h2>
+          <p class="text-xs text-secondary-theme">Configure directory contexts, models, and custom prompts.</p>
         </div>
-        <button onclick={onClose} class="p-1 text-slate-400 hover:text-white rounded" aria-label="Close modal">
+        <button onclick={onClose} class="p-1 text-secondary-theme hover:text-primary-theme rounded" aria-label="Close modal">
           <X size={16} />
         </button>
       </div>
@@ -137,10 +137,10 @@
       <!-- Content -->
       <div class="flex-1 flex overflow-hidden">
         <!-- Workspaces List -->
-        <div class="w-1/3 border-r border-slate-800 p-3 space-y-1.5 overflow-y-auto">
+        <div class="w-1/3 border-r border-subtle p-3 space-y-1.5 overflow-y-auto">
           <button
             onclick={startNew}
-            class="w-full flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 text-xs font-medium transition-colors mb-2"
+            class="w-full flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent-subtle hover:bg-accent-theme hover:text-white text-accent-theme text-xs font-medium transition-colors mb-2"
           >
             <Plus size={14} />
             <span>Add Workspace</span>
@@ -149,10 +149,10 @@
           {#each workspaces as ws}
             <button
               onclick={() => (editingWorkspace = { ...ws })}
-              class="w-full text-left px-3 py-2 rounded-lg text-xs transition-colors {editingWorkspace.id === ws.id ? 'bg-slate-800 text-sky-400 font-medium' : 'text-slate-300 hover:bg-slate-800/60'}"
+              class="w-full text-left px-3 py-2 rounded-lg text-xs transition-colors {editingWorkspace.id === ws.id ? 'bg-surface-elevated text-accent-theme font-medium border border-subtle' : 'text-secondary-theme hover:bg-surface-elevated/50'}"
             >
               <div class="truncate">{ws.name}</div>
-              <div class="text-[10px] text-slate-500 font-mono truncate">{ws.model}</div>
+              <div class="text-[10px] text-muted-theme font-mono truncate">{ws.model}</div>
             </button>
           {/each}
         </div>
@@ -160,33 +160,33 @@
         <!-- Form Details -->
         <div class="flex-1 p-5 overflow-y-auto space-y-4 text-xs">
           <div>
-            <label for="ws-name" class="block text-slate-300 font-medium mb-1">Profile Name</label>
+            <label for="ws-name" class="block text-primary-theme font-medium mb-1">Profile Name</label>
             <input
               id="ws-name"
               type="text"
               bind:value={editingWorkspace.name}
-              class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-sky-500"
+              class="w-full px-3 py-2 bg-app border border-theme-default rounded-lg text-primary-theme focus:outline-none focus:border-accent-theme"
             />
           </div>
 
           <div>
-            <label for="ws-path" class="block text-slate-300 font-medium mb-1">Working Directory (Absolute Path)</label>
+            <label for="ws-path" class="block text-primary-theme font-medium mb-1">Working Directory (Absolute Path)</label>
             <input
               id="ws-path"
               type="text"
               bind:value={editingWorkspace.path}
-              class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono focus:outline-none focus:border-sky-500"
+              class="w-full px-3 py-2 bg-app border border-theme-default rounded-lg text-primary-theme font-mono focus:outline-none focus:border-accent-theme"
             />
-            <span class="text-[11px] text-slate-500 mt-1 block">Gemini CLI will run inside this directory and auto-read GEMINI.md.</span>
+            <span class="text-[11px] text-muted-theme mt-1 block">Gemini CLI will run inside this directory and auto-read GEMINI.md.</span>
           </div>
 
           <div>
-            <label for="ws-model" class="block text-slate-300 font-medium mb-1">Preferred Model</label>
+            <label for="ws-model" class="block text-primary-theme font-medium mb-1">Preferred Model</label>
             <select
               id="ws-model"
               value={selectedDropdownValue}
               onchange={onSelectModelChange}
-              class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-sky-500 font-mono"
+              class="w-full px-3 py-2 bg-app border border-theme-default rounded-lg text-primary-theme focus:outline-none focus:border-accent-theme font-mono"
             >
               {#each MODEL_GROUPS as group}
                 <optgroup label={group.group}>
@@ -201,8 +201,8 @@
             </select>
 
             {#if selectedDropdownValue === "manual_custom"}
-              <div class="mt-2.5 p-2.5 bg-slate-950/80 border border-sky-500/40 rounded-lg">
-                <label for="ws-custom-model" class="block text-[11px] font-medium text-sky-400 mb-1">
+              <div class="mt-2.5 p-2.5 bg-app border border-accent-subtle rounded-lg">
+                <label for="ws-custom-model" class="block text-[11px] font-medium text-accent-theme mb-1">
                   Custom Model Name / Identifier:
                 </label>
                 <input
@@ -211,30 +211,30 @@
                   value={customModelInput}
                   oninput={onCustomModelInput}
                   placeholder="e.g. gemini-3-pro-preview or custom model"
-                  class="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-slate-100 font-mono text-xs focus:outline-none focus:border-sky-400"
+                  class="w-full px-2.5 py-1.5 bg-surface border border-theme-default rounded text-primary-theme font-mono text-xs focus:outline-none focus:border-accent-theme"
                 />
-                <span class="text-[10px] text-slate-400 mt-1 block">
+                <span class="text-[10px] text-muted-theme mt-1 block">
                   Passed directly to Gemini CLI via ACP protocol.
                 </span>
               </div>
             {/if}
-            <span class="text-[11px] text-slate-500 mt-1.5 block">
+            <span class="text-[11px] text-muted-theme mt-1.5 block">
               Auto dynamically balances speed and complexity. Manual lets you select or enter any model.
             </span>
           </div>
 
           <div>
-            <label for="ws-prompt" class="block text-slate-300 font-medium mb-1">Custom System Instructions (Optional)</label>
+            <label for="ws-prompt" class="block text-primary-theme font-medium mb-1">Custom System Instructions (Optional)</label>
             <textarea
               id="ws-prompt"
               bind:value={editingWorkspace.system_prompt}
               rows="3"
               placeholder="e.g. Always write production C# code following Microsoft coding conventions..."
-              class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-sky-500 resize-none"
+              class="w-full px-3 py-2 bg-app border border-theme-default rounded-lg text-primary-theme focus:outline-none focus:border-accent-theme resize-none"
             ></textarea>
           </div>
 
-          <div class="pt-2 flex items-center justify-between border-t border-slate-800">
+          <div class="pt-2 flex items-center justify-between border-t border-subtle">
             <button
               onclick={() => {
                 if (confirm("Delete this workspace profile?")) {
@@ -249,7 +249,7 @@
 
             <button
               onclick={handleSave}
-              class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold transition-colors"
+              class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-accent-theme hover:bg-accent-hover text-white font-semibold transition-colors shadow-xs"
             >
               <Check size={14} />
               <span>Save Workspace</span>

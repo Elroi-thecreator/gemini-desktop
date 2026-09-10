@@ -67,3 +67,17 @@ export interface GeminiEnvStatus {
   version?: string;
   details: string;
 }
+
+export interface WorkspaceFileEntry {
+  name: string;
+  relative_path: string;
+  is_dir: boolean;
+  extension?: string;
+}
+
+export interface AttachmentItem {
+  id: string;
+  name: string;
+  path: string;
+  kind: "file" | "directory" | "git" | "external";
+}

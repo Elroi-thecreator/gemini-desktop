@@ -360,3 +360,98 @@ pub fn export_session(state: State<AppState>, session_id: String, format: String
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFileEntry {
+    pub name: String,
+    pub relative_path: String,
+    pub is_dir: bool,
+    pub extension: Option<String>,
+}
+
+#[tauri::command]
+pub fn list_workspace_files(state: State<AppState>, workspace_id: String) -> Result<Vec<WorkspaceFileEntry>, String> {
+    let workspaces = state.db.list_workspaces()?;
+    let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
+        .ok_or_else(|| "Workspace not found".to_string())?;
+
+    let root = PathBuf::from(&ws.path);
+    if !root.exists() || !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = Vec::new();
+    walk_workspace_dir(&root, &root, 0, 4, &mut entries);
+    Ok(entries)
+}
+
+fn walk_workspace_dir(
+    root: &std::path::Path,
+    current: &std::path::Path,
+    depth: usize,
+    max_depth: usize,
+    out: &mut Vec<WorkspaceFileEntry>,
+) {
+    if depth > max_depth || out.len() >= 600 {
+        return;
+    }
+
+    let read_dir = match std::fs::read_dir(current) {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+
+    let ignored_names = [
+        ".git", "node_modules", "target", "build", "dist", ".svelte-kit",
+        ".vscode", ".idea", "__pycache__", ".next", ".turbo", "vendor"
+    ];
+
+    let mut subdirs = Vec::new();
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let file_name = match entry.file_name().into_string() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        if ignored_names.iter().any(|&ign| ign.eq_ignore_ascii_case(&file_name)) {
+            continue;
+        }
+
+        let is_dir = path.is_dir();
+        let relative = match path.strip_prefix(root) {
+            Ok(p) => p.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+
+        let extension = if is_dir {
+            None
+        } else {
+            path.extension().and_then(|e| e.to_str()).map(|s| s.to_string())
+        };
+
+        out.push(WorkspaceFileEntry {
+            name: file_name,
+            relative_path: relative,
+            is_dir,
+            extension,
+        });
+
+        if is_dir {
+            subdirs.push(path);
+        }
+
+        if out.len() >= 600 {
+            break;
+        }
+    }
+
+    for subdir in subdirs {
+        walk_workspace_dir(root, &subdir, depth + 1, max_depth, out);
+        if out.len() >= 600 {
+            break;
+        }
+    }
+}
+
