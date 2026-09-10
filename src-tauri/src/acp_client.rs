@@ -42,17 +42,32 @@ pub struct StreamChunkPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionOption {
+    pub option_id: String,
+    pub name: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolPermissionPayload {
     pub request_id: u64,
+    pub session_id: String,
+    pub tool_call_id: Option<String>,
     pub tool_name: String,
+    pub title: Option<String>,
+    pub kind: Option<String>,
     pub parameters: Value,
+    pub locations: Option<Value>,
+    pub content: Option<Value>,
     pub reason: Option<String>,
+    pub options: Vec<PermissionOption>,
 }
 
 pub struct AcpSession {
     next_id: AtomicU64,
     stdin_writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
     pending_requests: Arc<StdMutex<HashMap<u64, oneshot::Sender<Result<Value, JsonRpcError>>>>>,
+    pending_permissions: Arc<StdMutex<HashMap<u64, Vec<PermissionOption>>>>,
     local_to_acp: Arc<StdMutex<HashMap<String, String>>>,
     acp_to_local: Arc<StdMutex<HashMap<String, String>>>,
 }
@@ -63,6 +78,7 @@ impl AcpSession {
             next_id: AtomicU64::new(1),
             stdin_writer: Arc::new(Mutex::new(None)),
             pending_requests: Arc::new(StdMutex::new(HashMap::new())),
+            pending_permissions: Arc::new(StdMutex::new(HashMap::new())),
             local_to_acp: Arc::new(StdMutex::new(HashMap::new())),
             acp_to_local: Arc::new(StdMutex::new(HashMap::new())),
         }
@@ -210,6 +226,46 @@ impl AcpSession {
         self.send_request("session/cancel", serde_json::Value::Object(params)).await?;
         Ok(())
     }
+
+    pub fn store_permission_options(&self, request_id: u64, options: Vec<PermissionOption>) {
+        if let Ok(mut guard) = self.pending_permissions.lock() {
+            guard.insert(request_id, options);
+        }
+    }
+
+    pub async fn respond_permission(&self, request_id: u64, option_id: Option<String>, allowed: bool) -> Result<(), String> {
+        let chosen_option_id = if let Some(oid) = option_id {
+            oid
+        } else {
+            let stored_options = self.pending_permissions.lock().ok().and_then(|mut m| m.remove(&request_id));
+            if let Some(opts) = stored_options {
+                if allowed {
+                    opts.iter()
+                        .find(|o| o.kind.contains("allow"))
+                        .map(|o| o.option_id.clone())
+                        .unwrap_or_else(|| "allow-once".to_string())
+                } else {
+                    opts.iter()
+                        .find(|o| o.kind.contains("reject") || o.kind.contains("deny"))
+                        .map(|o| o.option_id.clone())
+                        .unwrap_or_else(|| "reject-once".to_string())
+                }
+            } else if allowed {
+                "allow-once".to_string()
+            } else {
+                "reject-once".to_string()
+            }
+        };
+
+        let result = serde_json::json!({
+            "outcome": {
+                "outcome": "selected",
+                "optionId": chosen_option_id
+            }
+        });
+
+        self.send_response(request_id, result).await
+    }
 }
 
 pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<AcpSession>, active_session_id: &str) {
@@ -273,26 +329,97 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                 // Interactive tool confirmation request
                 "permission/request" | "session/permission_request" | "session/request_permission" | "tool/confirm" => {
                     let req_id = val.get("id").and_then(|id| id.as_u64()).unwrap_or(0);
-                    let tool_name = val.pointer("/params/tool")
+                    let session_id = val.pointer("/params/sessionId")
+                        .and_then(|s| s.as_str())
+                        .and_then(|acp_sid| acp_session.get_local_session_id(acp_sid))
+                        .unwrap_or_else(|| active_session_id.to_string());
+
+                    let title = val.pointer("/params/toolCall/title")
+                        .or_else(|| val.pointer("/params/title"))
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string());
+
+                    let kind = val.pointer("/params/toolCall/kind")
+                        .or_else(|| val.pointer("/params/kind"))
+                        .and_then(|k| k.as_str())
+                        .map(|s| s.to_string());
+
+                    let tool_call_id = val.pointer("/params/toolCall/toolCallId")
+                        .or_else(|| val.pointer("/params/toolCallId"))
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string());
+
+                    let tool_name = val.pointer("/params/toolCall/name")
+                        .or_else(|| val.pointer("/params/tool"))
                         .or_else(|| val.pointer("/params/name"))
                         .and_then(|t| t.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
+                        .map(|s| s.to_string())
+                        .or_else(|| title.clone())
+                        .or_else(|| kind.clone())
+                        .unwrap_or_else(|| "Tool Execution".to_string());
 
-                    let parameters = val.pointer("/params/arguments")
+                    let parameters = val.pointer("/params/toolCall/rawInput")
+                        .or_else(|| val.pointer("/params/arguments"))
                         .or_else(|| val.pointer("/params/parameters"))
                         .cloned()
                         .unwrap_or(Value::Null);
+
+                    let locations = val.pointer("/params/toolCall/locations")
+                        .or_else(|| val.pointer("/params/locations"))
+                        .cloned();
+
+                    let content = val.pointer("/params/toolCall/content")
+                        .or_else(|| val.pointer("/params/content"))
+                        .cloned();
 
                     let reason = val.pointer("/params/reason")
                         .and_then(|r| r.as_str())
                         .map(|s| s.to_string());
 
+                    let mut options = Vec::new();
+                    if let Some(opts_array) = val.pointer("/params/options").and_then(|o| o.as_array()) {
+                        for opt in opts_array {
+                            if let (Some(opt_id), Some(name)) = (
+                                opt.get("optionId").and_then(|s| s.as_str()),
+                                opt.get("name").and_then(|s| s.as_str()),
+                            ) {
+                                let kind_str = opt.get("kind").and_then(|s| s.as_str()).unwrap_or("allow_once").to_string();
+                                options.push(PermissionOption {
+                                    option_id: opt_id.to_string(),
+                                    name: name.to_string(),
+                                    kind: kind_str,
+                                });
+                            }
+                        }
+                    }
+
+                    if options.is_empty() {
+                        options.push(PermissionOption {
+                            option_id: "allow-once".to_string(),
+                            name: "Allow once".to_string(),
+                            kind: "allow_once".to_string(),
+                        });
+                        options.push(PermissionOption {
+                            option_id: "reject-once".to_string(),
+                            name: "Reject".to_string(),
+                            kind: "reject_once".to_string(),
+                        });
+                    }
+
+                    acp_session.store_permission_options(req_id, options.clone());
+
                     let _ = app_handle.emit("acp-tool-permission", ToolPermissionPayload {
                         request_id: req_id,
+                        session_id,
+                        tool_call_id,
                         tool_name,
+                        title,
+                        kind,
                         parameters,
+                        locations,
+                        content,
                         reason,
+                        options,
                     });
                 }
                 _ => {

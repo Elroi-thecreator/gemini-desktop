@@ -232,7 +232,7 @@ pub async fn send_prompt(
                     "protocolVersion": 1,
                     "clientInfo": {
                         "name": "GeminiDesktop",
-                        "version": "0.2.1"
+                        "version": "0.2.2"
                     }
                 })).await;
             }
@@ -317,9 +317,10 @@ pub async fn cancel_prompt(
 pub async fn respond_tool_permission(
     state: State<'_, AppState>,
     request_id: u64,
-    allowed: bool,
+    option_id: Option<String>,
+    allowed: Option<bool>,
 ) -> Result<(), String> {
-    state.acp_session.send_response(request_id, serde_json::json!({ "allowed": allowed })).await
+    state.acp_session.respond_permission(request_id, option_id, allowed.unwrap_or(true)).await
 }
 
 #[tauri::command]

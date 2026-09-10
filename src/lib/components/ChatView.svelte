@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import type { Workspace, Session, Message, ToolPermissionPayload } from "$lib/types";
   import { renderMarkdown } from "$lib/markdown";
   import {
@@ -11,6 +11,7 @@
     CheckCircle,
     XCircle,
     FileText,
+    FileCode,
     Copy,
     Check,
   } from "lucide-svelte";
@@ -36,7 +37,7 @@
     toolPermission: ToolPermissionPayload | null;
     onSendPrompt: (prompt: string) => void;
     onCancelPrompt: () => void;
-    onToolResponse: (requestId: number, allowed: boolean) => void;
+    onToolResponse: (requestId: number, optionId?: string, allowed?: boolean) => void;
     onExport: (format: string) => void;
   } = $props();
 
@@ -201,37 +202,111 @@
 
   <!-- Tool Permission Confirmation Banner (ACP) -->
   {#if toolPermission}
-    <div class="mx-6 mb-3 p-3.5 bg-amber-950/40 border border-amber-500/30 rounded-xl flex items-center justify-between shadow-lg">
-      <div class="flex items-center gap-2.5">
-        <div class="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
-          <Terminal size={16} />
-        </div>
-        <div class="text-xs">
-          <div class="font-semibold text-amber-300">
-            Permission Request: <span class="font-mono text-white">{toolPermission.tool_name}</span>
+    <div class="mx-6 mb-3 p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl shadow-xl backdrop-blur-sm transition-all duration-200">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-start gap-3">
+          <div class="p-2 rounded-lg bg-amber-500/20 text-amber-400 mt-0.5 shrink-0">
+            {#if toolPermission.kind === "edit"}
+              <FileCode size={18} />
+            {:else if toolPermission.kind === "read"}
+              <FileText size={18} />
+            {:else}
+              <Terminal size={18} />
+            {/if}
           </div>
-          <div class="text-[11px] text-amber-200/80">
-            {toolPermission.reason || "Gemini CLI requests confirmation to execute this action."}
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-semibold text-amber-300">
+                Permission Request: <span class="font-mono text-white">{toolPermission.title || toolPermission.tool_name}</span>
+              </span>
+              {#if toolPermission.kind}
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {toolPermission.kind}
+                </span>
+              {/if}
+            </div>
+            <div class="text-xs text-amber-200/80 mt-0.5">
+              {toolPermission.reason || "Gemini CLI requests confirmation to execute this action."}
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
-        <button
-          onclick={() => onToolResponse(toolPermission.request_id, true)}
-          class="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 transition-colors"
-        >
-          <CheckCircle size={14} />
-          <span>Allow</span>
-        </button>
-        <button
-          onclick={() => onToolResponse(toolPermission.request_id, false)}
-          class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors"
-        >
-          <XCircle size={14} />
-          <span>Deny</span>
-        </button>
-      </div>
+      <!-- Locations / Target Paths -->
+      {#if toolPermission.locations && (Array.isArray(toolPermission.locations) ? toolPermission.locations.length > 0 : true)}
+        <div class="mt-2.5 p-2 bg-slate-950/70 rounded-lg border border-slate-800/80 text-xs font-mono text-slate-300">
+          <div class="text-[10px] uppercase font-sans font-semibold text-slate-400 mb-1">Target Location:</div>
+          {#if Array.isArray(toolPermission.locations)}
+            {#each toolPermission.locations as loc}
+              <div class="truncate select-all text-sky-300">
+                {typeof loc === 'string' ? loc : loc?.path || JSON.stringify(loc)}
+              </div>
+            {/each}
+          {:else}
+            <div class="truncate select-all text-sky-300">
+              {typeof toolPermission.locations === 'string' ? toolPermission.locations : toolPermission.locations?.path || JSON.stringify(toolPermission.locations)}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Command or Parameters Detail -->
+      {#if toolPermission.parameters}
+        {#if toolPermission.parameters.command || toolPermission.parameters.cmd}
+          <div class="mt-2.5 p-2.5 bg-slate-950/80 rounded-lg border border-slate-800/80 text-xs font-mono text-emerald-400 overflow-x-auto">
+            <div class="text-[10px] uppercase font-sans font-semibold text-slate-400 mb-1">Command:</div>
+            <code>{toolPermission.parameters.command || toolPermission.parameters.cmd}</code>
+          </div>
+        {:else if typeof toolPermission.parameters === 'object' && Object.keys(toolPermission.parameters).length > 0 && !toolPermission.locations}
+          <div class="mt-2.5 p-2 bg-slate-950/70 rounded-lg border border-slate-800/80 text-xs font-mono text-slate-300 max-h-32 overflow-y-auto">
+            <div class="text-[10px] uppercase font-sans font-semibold text-slate-400 mb-1">Parameters:</div>
+            <pre class="text-[11px] whitespace-pre-wrap">{JSON.stringify(toolPermission.parameters, null, 2)}</pre>
+          </div>
+        {/if}
+      {/if}
+
+      <!-- Dynamic Options Buttons -->
+      {#if toolPermission.options && toolPermission.options.length > 0}
+        <div class="flex items-center flex-wrap gap-2 mt-3.5 justify-end">
+          {#each toolPermission.options as opt}
+            <button
+              onclick={() => onToolResponse(toolPermission.request_id, opt.option_id, opt.kind?.startsWith("allow") ?? true)}
+              class="px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm {
+                opt.kind?.startsWith('allow') || opt.name.toLowerCase().includes('allow')
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold'
+                  : opt.kind?.startsWith('reject') || opt.name.toLowerCase().includes('reject') || opt.name.toLowerCase().includes('deny')
+                  ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+              }"
+            >
+              {#if opt.kind?.startsWith('allow') || opt.name.toLowerCase().includes('allow')}
+                <CheckCircle size={14} />
+              {:else if opt.kind?.startsWith('reject') || opt.name.toLowerCase().includes('reject') || opt.name.toLowerCase().includes('deny')}
+                <XCircle size={14} />
+              {/if}
+              <span>{opt.name}</span>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <!-- Fallback standard Allow/Deny -->
+        <div class="flex items-center gap-2 mt-3.5 justify-end">
+          <button
+            onclick={() => onToolResponse(toolPermission.request_id, undefined, true)}
+            class="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors"
+          >
+            <CheckCircle size={14} />
+            <span>Allow</span>
+          </button>
+          <button
+            onclick={() => onToolResponse(toolPermission.request_id, undefined, false)}
+            class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+          >
+            <XCircle size={14} />
+            <span>Deny</span>
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 

@@ -1,4 +1,4 @@
-﻿export interface Workspace {
+export interface Workspace {
   id: string;
   name: string;
   path: string;
@@ -41,11 +41,24 @@ export interface SearchResult {
   created_at: string;
 }
 
+export interface PermissionOption {
+  option_id: string;
+  name: string;
+  kind: string;
+}
+
 export interface ToolPermissionPayload {
   request_id: number;
+  session_id: string;
+  tool_call_id?: string;
   tool_name: string;
+  title?: string;
+  kind?: string;
   parameters: any;
+  locations?: any;
+  content?: any;
   reason?: string;
+  options: PermissionOption[];
 }
 
 export interface GeminiEnvStatus {

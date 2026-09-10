@@ -233,10 +233,10 @@
     finishStreaming();
   }
 
-  async function handleToolResponse(requestId: number, allowed: boolean) {
+  async function handleToolResponse(requestId: number, optionId?: string, allowed: boolean = true) {
     toolPermission = null;
     try {
-      await invoke("respond_tool_permission", { requestId, allowed });
+      await invoke("respond_tool_permission", { requestId, optionId, allowed });
     } catch (e) {
       console.error("Failed to send tool response:", e);
     }
