@@ -1,4 +1,4 @@
-﻿use crate::database::{DbManager, Message, PromptTemplate, SearchResult, Session, Workspace};
+use crate::database::{DbManager, Message, PromptTemplate, SearchResult, Session, Workspace};
 use crate::process_manager::ProcessSupervisor;
 use crate::acp_client::{handle_acp_line, AcpSession};
 use serde::{Deserialize, Serialize};
@@ -28,42 +28,57 @@ pub struct AppState {
 
 #[tauri::command]
 pub async fn check_gemini_env() -> Result<GeminiEnvStatus, String> {
-    // Check if `gemini` is in PATH or common locations
-    let check = Command::new("where.exe")
-        .arg("gemini")
-        .output();
+    match crate::process_manager::find_gemini_executable() {
+        Some(bin_path) => {
+            let path_str = bin_path.to_string_lossy().to_string();
+            let is_batch = path_str.to_lowercase().ends_with(".cmd")
+                        || path_str.to_lowercase().ends_with(".bat");
 
-    if let Ok(output) = check {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let first_line = path_str.lines().next().unwrap_or("gemini").to_string();
+            #[cfg(target_os = "windows")]
+            let ver_check = if is_batch {
+                Command::new("cmd.exe")
+                    .args(["/c", &path_str, "--version"])
+                    .output()
+            } else {
+                Command::new(&path_str)
+                    .arg("--version")
+                    .output()
+            };
 
-            // Run gemini --version
-            let ver_check = Command::new(&first_line)
+            #[cfg(not(target_os = "windows"))]
+            let ver_check = Command::new(&path_str)
                 .arg("--version")
                 .output();
 
             let version = if let Ok(ver_out) = ver_check {
-                String::from_utf8_lossy(&ver_out.stdout).trim().to_string()
+                if ver_out.status.success() {
+                    let v = String::from_utf8_lossy(&ver_out.stdout).trim().to_string();
+                    if v.is_empty() {
+                        "installed".to_string()
+                    } else {
+                        v
+                    }
+                } else {
+                    "installed".to_string()
+                }
             } else {
                 "installed".to_string()
             };
 
-            return Ok(GeminiEnvStatus {
+            Ok(GeminiEnvStatus {
                 installed: true,
-                path: Some(first_line),
+                path: Some(path_str),
                 version: Some(version),
-                details: "Gemini CLI found on system PATH.".to_string(),
-            });
+                details: "Gemini CLI found and verified on system.".to_string(),
+            })
         }
+        None => Ok(GeminiEnvStatus {
+            installed: false,
+            path: None,
+            version: None,
+            details: "Gemini CLI not found in PATH or standard npm/pnpm locations.".to_string(),
+        }),
     }
-
-    Ok(GeminiEnvStatus {
-        installed: false,
-        path: None,
-        version: None,
-        details: "Gemini CLI not found in PATH. You can install it or configure a direct path.".to_string(),
-    })
 }
 
 #[tauri::command]
@@ -147,8 +162,35 @@ pub async fn send_prompt(
     };
 
     if needs_spawn {
-        let gemini_bin = "gemini"; // or fallback to detected path
-        match state.supervisor.spawn_gemini(gemini_bin, ws_path, &[]) {
+        let gemini_bin = match crate::process_manager::find_gemini_executable() {
+            Some(p) => p,
+            None => {
+                let assistant_id = format!("msg-{}", Uuid::new_v4());
+                let fallback_text = format!(
+                    "**[Offline / Mock Mode]**\n\nGemini CLI could not be located on your system PATH or npm global directories.\n\nPrompt received:\n> {}\n\nPlease install Gemini CLI (`npm install -g @google/gemini-cli` or `scoop install gemini-cli`) and ensure it is in your PATH.",
+                    prompt
+                );
+                let assistant_msg = Message {
+                    id: assistant_id,
+                    session_id: session_id.clone(),
+                    role: "assistant".to_string(),
+                    content: fallback_text.clone(),
+                    tool_calls_json: None,
+                    token_count: 50,
+                    created_at: Utc::now().to_rfc3339(),
+                };
+                let _ = state.db.save_message(assistant_msg);
+
+                let _ = app.emit("acp-chunk", crate::acp_client::StreamChunkPayload {
+                    session_id: session_id.clone(),
+                    delta: fallback_text,
+                    is_done: true,
+                });
+                return Ok(0);
+            }
+        };
+
+        match state.supervisor.spawn_gemini(&gemini_bin, ws_path.clone(), &[]) {
             Ok(mut child) => {
                 if let Some(stdin) = child.stdin.take() {
                     state.acp_session.set_stdin(Box::new(stdin)).await;
@@ -181,20 +223,20 @@ pub async fn send_prompt(
 
                 *ws_guard = Some(workspace_id.clone());
 
-                // Send initialize request
+                // Send initialize request (per ACP specification)
                 let _ = state.acp_session.send_request("initialize", serde_json::json!({
+                    "protocolVersion": 1,
                     "clientInfo": {
                         "name": "GeminiDesktop",
-                        "version": "0.1.0"
+                        "version": "0.1.1"
                     }
                 })).await;
             }
             Err(e) => {
-                // If CLI is not present or failed, emit mock assistant response so UI functions seamlessly for testing
                 let assistant_id = format!("msg-{}", Uuid::new_v4());
                 let fallback_text = format!(
-                    "**[Offline / Mock Mode]**\n\nGemini CLI could not be launched (`{}`).\n\nPrompt received:\n> {}\n\nPlease verify that `gemini` is installed and in your PATH, or test offline profiles and templates.",
-                    e, prompt
+                    "**[Offline / Mock Mode]**\n\nFailed to launch Gemini CLI at `{}` (`{}`).\n\nPrompt received:\n> {}\n\nPlease check permissions or verify your Gemini CLI installation.",
+                    gemini_bin.display(), e, prompt
                 );
                 let assistant_msg = Message {
                     id: assistant_id,
@@ -217,7 +259,14 @@ pub async fn send_prompt(
         }
     }
 
-    // 4. Send the prompt over ACP
+    // 4. Establish session context & send prompt over ACP
+    let ws_path_str = ws.as_ref().map(|w| w.path.clone()).unwrap_or_else(|| ".".to_string());
+    let _ = state.acp_session.send_request("newSession", serde_json::json!({
+        "sessionId": session_id,
+        "cwd": ws_path_str,
+        "model": model,
+    })).await;
+
     let params = serde_json::json!({
         "sessionId": session_id,
         "prompt": prompt,

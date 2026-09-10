@@ -127,7 +127,12 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, active_session_id: &s
             match method {
                 // Streaming chunk notification
                 "session/update" | "acp/chunk" | "content/delta" | "stream" => {
-                    let delta = val.pointer("/params/delta")
+                    // Check standard ACP format (update.content.text or update.delta) as well as flat fields
+                    let delta = val.pointer("/params/update/content/text")
+                        .or_else(|| val.pointer("/params/update/text"))
+                        .or_else(|| val.pointer("/params/update/delta"))
+                        .or_else(|| val.pointer("/params/update/content"))
+                        .or_else(|| val.pointer("/params/delta"))
                         .or_else(|| val.pointer("/params/content"))
                         .or_else(|| val.pointer("/params/text"))
                         .and_then(|t| t.as_str())
@@ -135,6 +140,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, active_session_id: &s
                         .to_string();
 
                     let is_done = val.pointer("/params/done")
+                        .or_else(|| val.pointer("/params/update/done"))
                         .and_then(|d| d.as_bool())
                         .unwrap_or(false);
 
@@ -145,7 +151,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, active_session_id: &s
                     });
                 }
                 // Interactive tool confirmation request
-                "permission/request" | "session/permission_request" | "tool/confirm" => {
+                "permission/request" | "session/permission_request" | "session/request_permission" | "tool/confirm" => {
                     let req_id = val.get("id").and_then(|id| id.as_u64()).unwrap_or(0);
                     let tool_name = val.pointer("/params/tool")
                         .or_else(|| val.pointer("/params/name"))
@@ -179,7 +185,8 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, active_session_id: &s
 
         // Check if response has a result containing text/content
         if val.get("result").is_some() {
-            if let Some(text) = val.pointer("/result/content")
+            if let Some(text) = val.pointer("/result/content/text")
+                .or_else(|| val.pointer("/result/content"))
                 .or_else(|| val.pointer("/result/text"))
                 .or_else(|| val.pointer("/result/output"))
                 .and_then(|t| t.as_str()) {
