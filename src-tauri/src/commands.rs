@@ -2,7 +2,6 @@ use crate::database::{DbManager, Message, PromptTemplate, SearchResult, Session,
 use crate::process_manager::ProcessSupervisor;
 use crate::acp_client::{handle_acp_line, AcpSession};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -25,7 +24,6 @@ pub struct AppState {
     pub supervisor: ProcessSupervisor,
     pub acp_session: Arc<AcpSession>,
     pub active_process_workspace: Arc<Mutex<Option<String>>>,
-    pub initialized_sessions: Arc<Mutex<HashSet<String>>>,
 }
 
 #[tauri::command]
@@ -114,9 +112,8 @@ pub fn rename_session(state: State<AppState>, session_id: String, title: String)
 }
 
 #[tauri::command]
-pub async fn delete_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
-    let mut sessions_guard = state.initialized_sessions.lock().await;
-    sessions_guard.remove(&session_id);
+pub fn delete_session(state: State<AppState>, session_id: String) -> Result<(), String> {
+    state.acp_session.remove_session(&session_id);
     state.db.delete_session(&session_id)
 }
 
@@ -166,10 +163,7 @@ pub async fn send_prompt(
     };
 
     if needs_spawn {
-        {
-            let mut sessions_guard = state.initialized_sessions.lock().await;
-            sessions_guard.clear();
-        }
+        state.acp_session.clear_sessions();
 
         let gemini_bin = match crate::process_manager::find_gemini_executable() {
             Some(p) => p,
@@ -208,11 +202,12 @@ pub async fn send_prompt(
                 if let Some(stdout) = child.stdout.take() {
                     let app_clone = app.clone();
                     let session_clone = session_id.clone();
+                    let acp_clone = state.acp_session.clone();
                     std::thread::spawn(move || {
                         let reader = BufReader::new(stdout);
                         for line in reader.lines() {
                             if let Ok(l) = line {
-                                handle_acp_line(&l, &app_clone, &session_clone);
+                                handle_acp_line(&l, &app_clone, &acp_clone, &session_clone);
                             }
                         }
                     });
@@ -233,11 +228,11 @@ pub async fn send_prompt(
                 *ws_guard = Some(workspace_id.clone());
 
                 // Send initialize request (per ACP specification)
-                let _ = state.acp_session.send_request("initialize", serde_json::json!({
+                let _ = state.acp_session.send_request_with_response("initialize", serde_json::json!({
                     "protocolVersion": 1,
                     "clientInfo": {
                         "name": "GeminiDesktop",
-                        "version": "0.2.0"
+                        "version": "0.2.1"
                     }
                 })).await;
             }
@@ -269,30 +264,44 @@ pub async fn send_prompt(
     }
 
     // 4. Establish session context & send prompt over ACP
-    let mut sessions_guard = state.initialized_sessions.lock().await;
-    if !sessions_guard.contains(&session_id) {
-        let ws_path_str = ws.as_ref().map(|w| w.path.clone()).unwrap_or_else(|| ".".to_string());
-        let _ = state.acp_session.send_request("session/new", serde_json::json!({
-            "sessionId": session_id,
-            "cwd": ws_path_str,
-            "mcpServers": [],
-            "model": model,
-        })).await;
-        sessions_guard.insert(session_id.clone());
-    }
+    let acp_session_id = match state.acp_session.get_acp_session_id(&session_id) {
+        Some(id) => id,
+        None => {
+            let ws_path_str = ws.as_ref().map(|w| w.path.clone()).unwrap_or_else(|| ".".to_string());
+            let mut new_session_params = serde_json::json!({
+                "cwd": ws_path_str,
+                "mcpServers": [],
+            });
+            if !model.is_empty() {
+                new_session_params["model"] = serde_json::json!(model);
+            }
 
-    let params = serde_json::json!({
-        "sessionId": session_id,
+            let res = state.acp_session.send_request_with_response("session/new", new_session_params).await?;
+
+            let assigned_id = res.get("sessionId")
+                .and_then(|s| s.as_str())
+                .ok_or_else(|| "ACP agent did not return a sessionId from session/new".to_string())?
+                .to_string();
+
+            state.acp_session.register_session_mapping(&session_id, &assigned_id);
+            assigned_id
+        }
+    };
+
+    let mut prompt_params = serde_json::json!({
+        "sessionId": acp_session_id,
         "prompt": [
             {
                 "type": "text",
                 "text": prompt
             }
-        ],
-        "model": model
+        ]
     });
+    if !model.is_empty() {
+        prompt_params["model"] = serde_json::json!(model);
+    }
 
-    state.acp_session.send_request("session/prompt", params).await
+    state.acp_session.send_request("session/prompt", prompt_params).await
 }
 
 #[tauri::command]

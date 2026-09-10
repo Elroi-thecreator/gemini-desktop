@@ -16,14 +16,12 @@ pub fn run() {
     let supervisor = ProcessSupervisor::new();
     let acp_session = Arc::new(AcpSession::new());
     let active_process_workspace = Arc::new(Mutex::new(None));
-    let initialized_sessions = Arc::new(Mutex::new(std::collections::HashSet::new()));
 
     let state = AppState {
         db,
         supervisor,
         acp_session,
         active_process_workspace,
-        initialized_sessions,
     };
 
     tauri::Builder::default()
