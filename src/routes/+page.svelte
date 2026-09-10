@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -226,7 +226,7 @@
   async function handleCancelPrompt() {
     isStreaming = false;
     try {
-      await invoke("cancel_prompt", { requestId: 1 });
+      await invoke("cancel_prompt", { requestId: 1, sessionId: activeSession?.id });
     } catch (e) {
       console.warn("Cancel signal error:", e);
     }

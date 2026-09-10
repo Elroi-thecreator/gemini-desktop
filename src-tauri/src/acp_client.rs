@@ -108,9 +108,15 @@ impl AcpSession {
         }
     }
 
-    pub async fn send_cancel(&self, target_request_id: u64) -> Result<(), String> {
-        let params = serde_json::json!({ "id": target_request_id });
-        self.send_request("cancel", params).await?;
+    pub async fn send_cancel(&self, session_id: Option<&str>, target_request_id: Option<u64>) -> Result<(), String> {
+        let mut params = serde_json::Map::new();
+        if let Some(sid) = session_id {
+            params.insert("sessionId".to_string(), serde_json::Value::String(sid.to_string()));
+        }
+        if let Some(rid) = target_request_id {
+            params.insert("id".to_string(), serde_json::json!(rid));
+        }
+        self.send_request("session/cancel", serde_json::Value::Object(params)).await?;
         Ok(())
     }
 }
@@ -183,7 +189,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, active_session_id: &s
             return;
         }
 
-        // Check if response has a result containing text/content
+        // Check if response has a result containing text/content or turn completion
         if val.get("result").is_some() {
             if let Some(text) = val.pointer("/result/content/text")
                 .or_else(|| val.pointer("/result/content"))
@@ -193,6 +199,13 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, active_session_id: &s
                 let _ = app_handle.emit("acp-chunk", StreamChunkPayload {
                     session_id: active_session_id.to_string(),
                     delta: text.to_string(),
+                    is_done: true,
+                });
+            } else if val.pointer("/result/stopReason").is_some() {
+                // ACP turn completion notification
+                let _ = app_handle.emit("acp-chunk", StreamChunkPayload {
+                    session_id: active_session_id.to_string(),
+                    delta: "".to_string(),
                     is_done: true,
                 });
             } else {

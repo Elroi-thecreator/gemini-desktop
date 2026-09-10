@@ -2,6 +2,7 @@ use crate::database::{DbManager, Message, PromptTemplate, SearchResult, Session,
 use crate::process_manager::ProcessSupervisor;
 use crate::acp_client::{handle_acp_line, AcpSession};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub supervisor: ProcessSupervisor,
     pub acp_session: Arc<AcpSession>,
     pub active_process_workspace: Arc<Mutex<Option<String>>>,
+    pub initialized_sessions: Arc<Mutex<HashSet<String>>>,
 }
 
 #[tauri::command]
@@ -112,7 +114,9 @@ pub fn rename_session(state: State<AppState>, session_id: String, title: String)
 }
 
 #[tauri::command]
-pub fn delete_session(state: State<AppState>, session_id: String) -> Result<(), String> {
+pub async fn delete_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let mut sessions_guard = state.initialized_sessions.lock().await;
+    sessions_guard.remove(&session_id);
     state.db.delete_session(&session_id)
 }
 
@@ -162,6 +166,11 @@ pub async fn send_prompt(
     };
 
     if needs_spawn {
+        {
+            let mut sessions_guard = state.initialized_sessions.lock().await;
+            sessions_guard.clear();
+        }
+
         let gemini_bin = match crate::process_manager::find_gemini_executable() {
             Some(p) => p,
             None => {
@@ -228,7 +237,7 @@ pub async fn send_prompt(
                     "protocolVersion": 1,
                     "clientInfo": {
                         "name": "GeminiDesktop",
-                        "version": "0.1.1"
+                        "version": "0.2.0"
                     }
                 })).await;
             }
@@ -260,25 +269,39 @@ pub async fn send_prompt(
     }
 
     // 4. Establish session context & send prompt over ACP
-    let ws_path_str = ws.as_ref().map(|w| w.path.clone()).unwrap_or_else(|| ".".to_string());
-    let _ = state.acp_session.send_request("newSession", serde_json::json!({
-        "sessionId": session_id,
-        "cwd": ws_path_str,
-        "model": model,
-    })).await;
+    let mut sessions_guard = state.initialized_sessions.lock().await;
+    if !sessions_guard.contains(&session_id) {
+        let ws_path_str = ws.as_ref().map(|w| w.path.clone()).unwrap_or_else(|| ".".to_string());
+        let _ = state.acp_session.send_request("session/new", serde_json::json!({
+            "sessionId": session_id,
+            "cwd": ws_path_str,
+            "mcpServers": [],
+            "model": model,
+        })).await;
+        sessions_guard.insert(session_id.clone());
+    }
 
     let params = serde_json::json!({
         "sessionId": session_id,
-        "prompt": prompt,
+        "prompt": [
+            {
+                "type": "text",
+                "text": prompt
+            }
+        ],
         "model": model
     });
 
-    state.acp_session.send_request("prompt", params).await
+    state.acp_session.send_request("session/prompt", params).await
 }
 
 #[tauri::command]
-pub async fn cancel_prompt(state: State<'_, AppState>, request_id: u64) -> Result<(), String> {
-    state.acp_session.send_cancel(request_id).await
+pub async fn cancel_prompt(
+    state: State<'_, AppState>,
+    request_id: Option<u64>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    state.acp_session.send_cancel(session_id.as_deref(), request_id).await
 }
 
 #[tauri::command]
