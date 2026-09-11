@@ -81,3 +81,16 @@ export interface AttachmentItem {
   path: string;
   kind: "file" | "directory" | "git" | "external";
 }
+
+export interface McpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  disabled?: boolean;
+}
+
+export interface McpConfigResponse {
+  file_path: string;
+  mcp_servers: Record<string, McpServerConfig>;
+}

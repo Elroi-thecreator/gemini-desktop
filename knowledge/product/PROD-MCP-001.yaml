@@ -1,0 +1,39 @@
+id: PROD-MCP-001
+type: product_standard
+title: Model Context Protocol (MCP) Server Configuration & Tool Ingestion
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: integration_and_product
+
+applies_to:
+  - frontend
+  - backend
+  - acp_client
+  - configuration
+
+rule:
+  "Model Context Protocol (MCP) servers must be configurable at both Workspace scope (`.gemini/settings.json`) and Global scope (`~/.gemini/settings.json`). Modifying MCP configurations must preserve all existing non-MCP configuration keys."
+
+do:
+  - "Support both Workspace-specific (`<workspace>/.gemini/settings.json`) and Global (`~/.gemini/settings.json`) configuration scopes."
+  - "Provide 1-click presets for popular MCP servers (GitHub Docker, Local Filesystem, PostgreSQL, Brave Search, Knowledge Graph Memory, Custom)."
+  - "Offer dual editing modes: an accessible Guided Form and a Monospaced Raw JSON editor."
+  - "Safely read and write `settings.json` using atomic file operations, preserving pre-existing keys (such as `theme`, `telemetry`, etc.)."
+  - "Intercept any MCP tool executions (`mcp_*`) with the interactive Tool Permission Approval banner."
+
+dont:
+  - "Do not overwrite or delete unrelated configuration keys in `settings.json`."
+  - "Do not execute unverified MCP server processes outside the supervisor or without user consent."
+
+reason:
+  "MCP integration extends Gemini CLI capabilities with external databases, repositories, and APIs while adhering to Gemini CLI's native configuration specifications."
+
+related_items:
+  - PROD-TOOL-001
+  - PROD-WS-001
+  - ARCH-ACP-001

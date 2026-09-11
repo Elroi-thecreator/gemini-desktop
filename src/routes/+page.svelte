@@ -18,6 +18,7 @@
   import WorkspaceModal from "$lib/components/WorkspaceModal.svelte";
   import TemplatesModal from "$lib/components/TemplatesModal.svelte";
   import ThemeModal from "$lib/components/ThemeModal.svelte";
+  import McpModal from "$lib/components/McpModal.svelte";
   import { themeManager } from "$lib/theme.svelte";
 
   // Reactive State (Svelte 5 Runes)
@@ -39,6 +40,7 @@
   let showWorkspaceModal = $state(false);
   let showTemplatesModal = $state(false);
   let showThemeModal = $state(false);
+  let showMcpModal = $state(false);
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
@@ -117,6 +119,9 @@
     } else if ((e.ctrlKey || e.metaKey) && e.key === "k") {
       e.preventDefault();
       showSearchModal = true;
+    } else if ((e.ctrlKey || e.metaKey) && e.key === "m") {
+      e.preventDefault();
+      showMcpModal = !showMcpModal;
     }
   }
 
@@ -323,6 +328,7 @@
     onOpenTemplates={() => (showTemplatesModal = true)}
     onOpenWorkspaceModal={() => (showWorkspaceModal = true)}
     onOpenThemeModal={() => (showThemeModal = true)}
+    onOpenMcpModal={() => (showMcpModal = true)}
   />
 
   <!-- Main Chat Surface -->
@@ -338,6 +344,7 @@
     onCancelPrompt={handleCancelPrompt}
     onToolResponse={handleToolResponse}
     onExport={handleExport}
+    onOpenMcpModal={() => (showMcpModal = true)}
   />
 
   <!-- Modals -->
@@ -373,5 +380,11 @@
   <ThemeModal
     isOpen={showThemeModal}
     onClose={() => (showThemeModal = false)}
+  />
+
+  <McpModal
+    isOpen={showMcpModal}
+    {activeWorkspace}
+    onClose={() => (showMcpModal = false)}
   />
 </div>

@@ -25,6 +25,23 @@ A modern, blazing-fast native desktop application for interacting with the **Gem
   - **Gemini 2.5 Series**: `gemini-2.5-pro`, `gemini-2.5-flash`, and `gemini-2.5-flash-lite`.
   - **Manual / Custom Entry**: Enter any custom model identifier, fine-tuned endpoint, or preview string.
 
+- **🔌 Model Context Protocol (MCP) Server Integration (`Ctrl+M`)**
+  - Native dual-scope configuration management: **Workspace-scoped** (`<workspace>/.gemini/settings.json`) or **Global** (`~/.gemini/settings.json`).
+  - 1-click popular presets: 🐙 **GitHub (Docker)**, 📁 **Local Filesystem**, 🐘 **PostgreSQL**, 🔍 **Brave Web Search**, and 🧠 **Knowledge Graph Memory**.
+  - Dual editing experience: guided visual form or monospaced raw JSON editor.
+  - Safe non-destructive persistence: strictly preserves all existing non-MCP keys and settings.
+
+- **📎 File, Folder & Git Context Attachments**
+  - Inline `@` mention autocomplete popover with fuzzy search across workspace files and directories.
+  - One-click Git context presets: `@git:diff` (working tree changes), `@git:staged` (index changes), and `@git:status`.
+  - Removable badge chips row with individual and "Clear All" dismiss controls.
+  - Interactive file & folder search picker modal.
+
+- **🎨 Multi-Theme System & Syntax Highlighting**
+  - 4 tailored themes: **Platinum Dark** (default), **Gemini Aurora**, **Cyber Emerald**, and **Platinum Light** (`platinum-white`).
+  - Full theme-adaptive `highlight.js` syntax highlighting palette tuned for readable light and dark contrast.
+  - Modernized theme-adaptive tool execution authorization banners.
+
 - **📁 Workspace & Directory Profiles**
   - Configure individual workspaces bound to local project directories (`GEMINI.md` context is automatically loaded).
   - Customize preferred models and custom system instructions per workspace profile.

@@ -44,7 +44,9 @@ pub fn run() {
             get_prompts,
             search_history,
             export_session,
-            list_workspace_files
+            list_workspace_files,
+            get_mcp_config,
+            save_mcp_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

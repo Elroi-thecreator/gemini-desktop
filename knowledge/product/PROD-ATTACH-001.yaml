@@ -1,0 +1,38 @@
+id: PROD-ATTACH-001
+type: product_standard
+title: Context & File Attachments with Inline Mention Autocomplete
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: frontend_and_product
+
+applies_to:
+  - frontend
+  - backend
+  - commands
+
+rule:
+  "Users must be able to attach workspace files, folders, Git state, and custom references using inline `@` mentions or an interactive attachment picker. Attached items must be converted to standard `@path` references for ACP prompt execution."
+
+do:
+  - "Provide a non-blocking directory walker (`list_workspace_files`) in the backend that crawls workspace folders up to depth 4 while ignoring build directories (`.git`, `node_modules`, `target`, `dist`, etc.)."
+  - "Render an inline `@` mention autocomplete popover in the prompt input with keyboard navigation (`↑`/`↓`/`Enter`/`Tab`/`Esc`)."
+  - "Support pre-defined Git context tokens: `@git:diff`, `@git:staged`, and `@git:status`."
+  - "Render attached items as removable badge chips above the prompt textarea with individual and clear-all dismiss controls."
+  - "Append unmentioned badge chips automatically to the outgoing prompt as `@path` references so Gemini CLI resolves them natively over ACP."
+
+dont:
+  - "Do not block the UI thread when crawling large directory structures."
+  - "Do not crawl or expose sensitive build or version control directories."
+
+reason:
+  "Direct context attachment matches Gemini CLI's official file management workflow, enabling developers to feed relevant code and diffs effortlessly."
+
+related_items:
+  - PROD-WS-001
+  - DEV-SVELTE-001
+  - ARCH-ACP-001

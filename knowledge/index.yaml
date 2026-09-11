@@ -1,8 +1,8 @@
 # Gemini Desktop Master Knowledge Graph & Index
 system_name: GeminiDesktop
 repository_root: "c:/AIFiles/gemini-desktop"
-knowledge_units_count: 14
-last_updated: "2026-09-10"
+knowledge_units_count: 16
+last_updated: "2026-09-11"
 
 knowledge_units:
   architecture:
@@ -40,6 +40,12 @@ knowledge_units:
     - id: PROD-WS-001
       file: "knowledge/product/PROD-WS-001.yaml"
       title: "Workspace Context Profiles & Working Directory Isolation"
+    - id: PROD-MCP-001
+      file: "knowledge/product/PROD-MCP-001.yaml"
+      title: "Model Context Protocol (MCP) Server Configuration & Tool Ingestion"
+    - id: PROD-ATTACH-001
+      file: "knowledge/product/PROD-ATTACH-001.yaml"
+      title: "Context & File Attachments with Inline Mention Autocomplete"
 
   decisions:
     - id: ADR-001

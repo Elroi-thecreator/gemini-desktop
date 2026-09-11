@@ -13,6 +13,7 @@
     Sparkles,
     ChevronDown,
     Palette,
+    Server,
   } from "lucide-svelte";
 
   let {
@@ -29,6 +30,7 @@
     onOpenTemplates,
     onOpenWorkspaceModal,
     onOpenThemeModal,
+    onOpenMcpModal,
     envStatus = null,
   }: {
     workspaces: Workspace[];
@@ -44,6 +46,7 @@
     onOpenTemplates: () => void;
     onOpenWorkspaceModal: () => void;
     onOpenThemeModal: () => void;
+    onOpenMcpModal: () => void;
     envStatus: any;
   } = $props();
 
@@ -154,6 +157,15 @@
       <Palette size={14} class="text-accent-theme" />
       <span>Theme & Colors</span>
       <span class="ml-auto text-[10px] capitalize text-muted-theme font-medium">{themeManager.current.replace('-', ' ')}</span>
+    </button>
+
+    <button
+      onclick={onOpenMcpModal}
+      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+    >
+      <Server size={14} class="text-accent-theme" />
+      <span>MCP Servers</span>
+      <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+M</span>
     </button>
   </div>
 

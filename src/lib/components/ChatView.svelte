@@ -27,6 +27,7 @@
     X,
     ChevronDown,
     Plus,
+    Server,
   } from "lucide-svelte";
   import { tick } from "svelte";
 
@@ -42,6 +43,7 @@
     onCancelPrompt,
     onToolResponse,
     onExport,
+    onOpenMcpModal,
   }: {
     workspace: Workspace | null;
     session: Session | null;
@@ -54,6 +56,7 @@
     onCancelPrompt: () => void;
     onToolResponse: (requestId: number, optionId?: string, allowed?: boolean) => void;
     onExport: (format: string) => void;
+    onOpenMcpModal?: () => void;
   } = $props();
 
   let inputPrompt = $state("");
@@ -309,15 +312,27 @@
       {/if}
     </div>
 
-    <!-- Export Menu -->
-    <div class="relative">
-      <button
-        onclick={() => (showExportMenu = !showExportMenu)}
-        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default"
-      >
-        <Download size={14} />
-        <span>Export</span>
-      </button>
+    <div class="flex items-center gap-2">
+      {#if onOpenMcpModal}
+        <button
+          onclick={onOpenMcpModal}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default cursor-pointer"
+          title="Configure Model Context Protocol (MCP) Servers (Ctrl+M)"
+        >
+          <Server size={14} class="text-accent-theme" />
+          <span>MCP Servers</span>
+        </button>
+      {/if}
+
+      <!-- Export Menu -->
+      <div class="relative">
+        <button
+          onclick={() => (showExportMenu = !showExportMenu)}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default cursor-pointer"
+        >
+          <Download size={14} />
+          <span>Export</span>
+        </button>
 
       {#if showExportMenu}
         <div class="absolute right-0 mt-1.5 w-40 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-30 text-xs">
