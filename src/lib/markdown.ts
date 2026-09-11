@@ -1,4 +1,4 @@
-﻿import { marked } from "marked";
+import { marked } from "marked";
 import hljs from "highlight.js";
 
 // Custom renderer to format code blocks with language pills and copy buttons
@@ -16,11 +16,11 @@ renderer.code = function ({ text, lang }) {
   const encodedRaw = encodeURIComponent(text);
 
   return `
-    <div class="code-block my-3 rounded-lg overflow-hidden border border-slate-800 bg-slate-950 font-mono text-xs">
-      <div class="flex items-center justify-between px-3 py-1.5 bg-slate-900/80 border-b border-slate-800 text-slate-400">
-        <span class="text-[11px] uppercase font-semibold tracking-wider text-sky-400">${validLang}</span>
+    <div class="code-block my-3 rounded-xl overflow-hidden border border-subtle bg-code shadow-xs font-mono text-xs">
+      <div class="flex items-center justify-between px-3.5 py-1.5 bg-code-header border-b border-subtle text-secondary-theme select-none">
+        <span class="text-[11px] uppercase font-mono font-bold tracking-wider text-accent-theme">${validLang}</span>
         <button 
-          class="copy-code-btn px-2 py-0.5 rounded text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+          class="copy-code-btn px-2.5 py-0.5 rounded text-[11px] bg-surface hover:bg-surface-hover text-secondary-theme hover:text-primary-theme border border-theme-default transition-colors cursor-pointer"
           data-code="${encodedRaw}"
           onclick="
             const code = decodeURIComponent(this.getAttribute('data-code'));
@@ -33,7 +33,7 @@ renderer.code = function ({ text, lang }) {
           Copy
         </button>
       </div>
-      <pre class="p-3 overflow-x-auto text-slate-200"><code>${highlighted}</code></pre>
+      <pre class="p-3.5 overflow-x-auto text-code font-mono text-xs leading-relaxed"><code class="hljs">${highlighted}</code></pre>
     </div>
   `;
 };
