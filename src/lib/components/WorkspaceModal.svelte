@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Workspace } from "$lib/types";
   import { X, Plus, Trash2, Check } from "lucide-svelte";
+  import { dialogManager } from "$lib/dialog.svelte";
 
   interface ModelOptionGroup {
     group: string;
@@ -236,12 +237,17 @@
 
           <div class="pt-2 flex items-center justify-between border-t border-subtle">
             <button
-              onclick={() => {
-                if (confirm("Delete this workspace profile?")) {
+              onclick={async () => {
+                const confirmed = await dialogManager.confirm("Delete this workspace profile? This cannot be undone.", {
+                  title: "Delete Workspace Profile",
+                  confirmText: "Delete",
+                  isDestructive: true,
+                });
+                if (confirmed) {
                   onDeleteWorkspace(editingWorkspace.id);
                 }
               }}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
             >
               <Trash2 size={14} />
               <span>Delete</span>

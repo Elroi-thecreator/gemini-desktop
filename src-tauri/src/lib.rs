@@ -46,7 +46,9 @@ pub fn run() {
             export_session,
             list_workspace_files,
             get_mcp_config,
-            save_mcp_config
+            save_mcp_config,
+            run_terminal_command,
+            restart_gemini_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

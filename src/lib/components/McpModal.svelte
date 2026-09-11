@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import type { Workspace, McpServerConfig, McpConfigResponse } from "$lib/types";
+  import { dialogManager } from "$lib/dialog.svelte";
   import {
     X,
     Plus,
@@ -16,6 +17,7 @@
     Info,
     RefreshCw,
   } from "lucide-svelte";
+  import Tooltip from "$lib/components/Tooltip.svelte";
 
   let {
     isOpen = false,
@@ -120,6 +122,20 @@
         command: "npx",
         args: ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
         env: {},
+      },
+    },
+    {
+      id: "azure-devops",
+      label: "Azure DevOps (MCP)",
+      description: "Work items, PRs, pipelines, and git repos in Azure DevOps",
+      icon: "☁️",
+      config: {
+        key: "azure-devops",
+        command: "npx",
+        args: ["-y", "@azure-devops/mcp", "--organization", "https://dev.azure.com/YOUR_ORG"],
+        env: {
+          AZURE_DEVOPS_EXT_PAT: "${AZURE_DEVOPS_EXT_PAT}",
+        },
       },
     },
     {
@@ -269,7 +285,12 @@
   }
 
   async function handleDeleteServer(key: string) {
-    if (!confirm(`Remove MCP server "${key}" from settings?`)) return;
+    const confirmed = await dialogManager.confirm(`Remove MCP server "${key}" from settings?`, {
+      title: "Remove MCP Server",
+      confirmText: "Remove",
+      isDestructive: true,
+    });
+    if (!confirmed) return;
 
     const updatedServers = { ...servers };
     delete updatedServers[key];
@@ -354,51 +375,66 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <button
-            onclick={loadConfig}
-            title="Refresh from disk"
-            class="p-1.5 text-secondary-theme hover:text-primary-theme hover:bg-surface rounded-lg transition-colors"
-          >
-            <RefreshCw size={15} class={isLoading ? "animate-spin" : ""} />
-          </button>
-          <button
-            onclick={onClose}
-            class="p-1 text-secondary-theme hover:text-primary-theme hover:bg-surface rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X size={16} />
-          </button>
+          <Tooltip text="Reload Config" subtext="Reload settings.json from disk to sync any manual changes" position="bottom">
+            <button
+              onclick={loadConfig}
+              class="p-1.5 text-secondary-theme hover:text-primary-theme hover:bg-surface rounded-lg transition-colors cursor-pointer"
+            >
+              <RefreshCw size={15} class={isLoading ? "animate-spin" : ""} />
+            </button>
+          </Tooltip>
+          <Tooltip text="Close Modal" position="bottom">
+            <button
+              onclick={onClose}
+              class="p-1 text-secondary-theme hover:text-primary-theme hover:bg-surface rounded-lg transition-colors cursor-pointer"
+              aria-label="Close modal"
+            >
+              <X size={16} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
       <!-- Scope Selector Bar -->
       <div class="px-5 py-2.5 bg-surface-elevated/20 border-b border-subtle flex items-center justify-between text-xs">
         <div class="flex items-center gap-1.5 p-0.5 bg-app rounded-lg border border-subtle">
-          <button
-            onclick={() => {
-              activeScope = "workspace";
-              loadConfig();
-            }}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all {activeScope === 'workspace' ? 'bg-surface-elevated text-accent-theme shadow-xs border border-subtle' : 'text-secondary-theme hover:text-primary-theme'}"
+          <Tooltip
+            text="Workspace Scope"
+            subtext="Configures servers stored in .gemini/settings.json within this workspace folder only"
+            position="bottom"
           >
-            <Folder size={13} />
-            <span>Workspace Scope</span>
-            {#if activeWorkspace}
-              <span class="text-[10px] text-muted-theme font-mono truncate max-w-[120px]">({activeWorkspace.name})</span>
-            {/if}
-          </button>
+            <button
+              onclick={() => {
+                activeScope = "workspace";
+                loadConfig();
+              }}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer {activeScope === 'workspace' ? 'bg-surface-elevated text-accent-theme shadow-xs border border-subtle' : 'text-secondary-theme hover:text-primary-theme'}"
+            >
+              <Folder size={13} />
+              <span>Workspace Scope</span>
+              {#if activeWorkspace}
+                <span class="text-[10px] text-muted-theme font-mono truncate max-w-[120px]">({activeWorkspace.name})</span>
+              {/if}
+            </button>
+          </Tooltip>
 
-          <button
-            onclick={() => {
-              activeScope = "global";
-              loadConfig();
-            }}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all {activeScope === 'global' ? 'bg-surface-elevated text-accent-theme shadow-xs border border-subtle' : 'text-secondary-theme hover:text-primary-theme'}"
+          <Tooltip
+            text="Global Scope"
+            subtext="Configures servers stored in ~/.gemini/settings.json available across all workspaces"
+            position="bottom"
           >
-            <Globe size={13} />
-            <span>Global Scope</span>
-            <span class="text-[10px] text-muted-theme font-mono">(~/.gemini)</span>
-          </button>
+            <button
+              onclick={() => {
+                activeScope = "global";
+                loadConfig();
+              }}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer {activeScope === 'global' ? 'bg-surface-elevated text-accent-theme shadow-xs border border-subtle' : 'text-secondary-theme hover:text-primary-theme'}"
+            >
+              <Globe size={13} />
+              <span>Global Scope</span>
+              <span class="text-[10px] text-muted-theme font-mono">(~/.gemini)</span>
+            </button>
+          </Tooltip>
         </div>
 
         <!-- Mode Toggle: Form vs JSON -->

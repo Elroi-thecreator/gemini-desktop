@@ -149,6 +149,32 @@ impl ProcessSupervisor {
         }
     }
 
+    /// Reads and parses KEY=VALUE environment variables from a .env file.
+    pub fn parse_dotenv_file(path: &Path) -> std::collections::HashMap<String, String> {
+        let mut map = std::collections::HashMap::new();
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = trimmed.split_once('=') {
+                    let key = k.trim().to_string();
+                    let mut val = v.trim().to_string();
+                    if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
+                        if val.len() >= 2 {
+                            val = val[1..val.len() - 1].to_string();
+                        }
+                    }
+                    if !key.is_empty() {
+                        map.insert(key, val);
+                    }
+                }
+            }
+        }
+        map
+    }
+
     pub fn spawn_gemini(
         &self,
         gemini_binary: &Path,
@@ -185,7 +211,19 @@ impl ProcessSupervisor {
 
         if let Some(dir) = working_dir {
             if dir.exists() {
-                cmd.current_dir(dir);
+                cmd.current_dir(&dir);
+
+                // Auto-inject workspace .env and .env.local into Gemini CLI and its child tools
+                let dot_env = dir.join(".env");
+                if dot_env.is_file() {
+                    let envs = Self::parse_dotenv_file(&dot_env);
+                    cmd.envs(&envs);
+                }
+                let dot_env_local = dir.join(".env.local");
+                if dot_env_local.is_file() {
+                    let envs = Self::parse_dotenv_file(&dot_env_local);
+                    cmd.envs(&envs);
+                }
             }
         }
 
@@ -215,3 +253,32 @@ impl ProcessSupervisor {
         Ok(child)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_dotenv_file() {
+        let temp_file = std::env::temp_dir().join(format!("test_dotenv_{}.env", uuid::Uuid::new_v4()));
+        let sample = "
+# Comment line
+AZURE_DEVOPS_EXT_PAT=secret_pat_value_123
+GEMINI_API_KEY=\"ai_key_456\"
+EMPTY_LINE=
+
+DEBUG='true'
+# Another comment
+";
+        std::fs::write(&temp_file, sample).unwrap();
+        let parsed = ProcessSupervisor::parse_dotenv_file(&temp_file);
+        let _ = std::fs::remove_file(&temp_file);
+
+        assert_eq!(parsed.get("AZURE_DEVOPS_EXT_PAT"), Some(&"secret_pat_value_123".to_string()));
+        assert_eq!(parsed.get("GEMINI_API_KEY"), Some(&"ai_key_456".to_string()));
+        assert_eq!(parsed.get("DEBUG"), Some(&"true".to_string()));
+        assert_eq!(parsed.get("EMPTY_LINE"), Some(&"".to_string()));
+        assert_eq!(parsed.get("# Comment line"), None);
+    }
+}
+

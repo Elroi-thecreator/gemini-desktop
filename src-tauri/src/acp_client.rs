@@ -214,16 +214,39 @@ impl AcpSession {
         }
     }
 
+    pub async fn send_notification(&self, method: &str, params: Value) -> Result<(), String> {
+        let notif = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        let json_line = serde_json::to_string(&notif).map_err(|e| e.to_string())? + "\n";
+
+        let mut guard = self.stdin_writer.lock().await;
+        if let Some(writer) = guard.as_mut() {
+            writer.write_all(json_line.as_bytes()).map_err(|e| e.to_string())?;
+            writer.flush().map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("CLI stdin is not connected".to_string())
+        }
+    }
+
     pub async fn send_cancel(&self, session_id: Option<&str>, target_request_id: Option<u64>) -> Result<(), String> {
         let mut params = serde_json::Map::new();
         if let Some(sid) = session_id {
             let actual_sid = self.get_acp_session_id(sid).unwrap_or_else(|| sid.to_string());
             params.insert("sessionId".to_string(), serde_json::Value::String(actual_sid));
         }
+
+        // Per ACP specification: session/cancel is a JSON-RPC notification (no 'id' field)
+        self.send_notification("session/cancel", serde_json::Value::Object(params)).await?;
+
+        // Also send $/cancel_request notification if target_request_id is provided
         if let Some(rid) = target_request_id {
-            params.insert("id".to_string(), serde_json::json!(rid));
+            let _ = self.send_notification("$/cancel_request", serde_json::json!({ "id": rid })).await;
         }
-        self.send_request("session/cancel", serde_json::Value::Object(params)).await?;
+
         Ok(())
     }
 
@@ -460,7 +483,13 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
             return;
         }
 
-        if val.get("error").is_some() {
+        if let Some(err_val) = val.get("error") {
+            let code = err_val.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
+            let message = err_val.get("message").and_then(|m| m.as_str()).unwrap_or("");
+            // Ignore benign cancellation errors (-32800 is standard JSON-RPC Request Cancelled, or method not found for cancel)
+            if code == -32800 || message.to_lowercase().contains("cancel") {
+                return;
+            }
             let _ = app_handle.emit("acp-error", val);
             return;
         }

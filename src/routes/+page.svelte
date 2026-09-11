@@ -20,6 +20,7 @@
   import ThemeModal from "$lib/components/ThemeModal.svelte";
   import McpModal from "$lib/components/McpModal.svelte";
   import { themeManager } from "$lib/theme.svelte";
+  import { dialogManager } from "$lib/dialog.svelte";
 
   // Reactive State (Svelte 5 Runes)
   let workspaces: Workspace[] = $state([]);
@@ -41,6 +42,7 @@
   let showTemplatesModal = $state(false);
   let showThemeModal = $state(false);
   let showMcpModal = $state(false);
+  let showTerminalDrawer = $state(false);
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
@@ -97,8 +99,14 @@
     );
 
     unlistenError = await listen<any>("acp-error", (event) => {
+      const payloadStr = JSON.stringify(event.payload || "");
+      if (payloadStr.toLowerCase().includes("cancel")) {
+        console.warn("Ignored cancellation signal:", event.payload);
+        finishStreaming();
+        return;
+      }
       console.error("ACP Error:", event.payload);
-      streamingText += `\n\n**Error:** ${JSON.stringify(event.payload)}`;
+      streamingText += `\n\n**Error:** ${payloadStr}`;
       finishStreaming();
     });
 
@@ -122,6 +130,9 @@
     } else if ((e.ctrlKey || e.metaKey) && e.key === "m") {
       e.preventDefault();
       showMcpModal = !showMcpModal;
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === "`" || e.key === "~")) {
+      e.preventDefault();
+      showTerminalDrawer = !showTerminalDrawer;
     }
   }
 
@@ -166,15 +177,24 @@
   }
 
   async function handleRenameSession(session: Session) {
-    const newTitle = prompt("Enter new title for conversation:", session.title);
-    if (!newTitle || newTitle === session.title) return;
-    await invoke("rename_session", { sessionId: session.id, title: newTitle });
-    session.title = newTitle;
+    const newTitle = await dialogManager.prompt("Enter new title for conversation:", session.title, {
+      title: "Rename Conversation",
+      placeholder: "New conversation title...",
+    });
+    if (!newTitle || !newTitle.trim() || newTitle === session.title) return;
+    const trimmed = newTitle.trim();
+    await invoke("rename_session", { sessionId: session.id, title: trimmed });
+    session.title = trimmed;
     sessions = [...sessions];
   }
 
   async function handleDeleteSession(session: Session) {
-    if (!confirm(`Delete conversation "${session.title}"?`)) return;
+    const confirmed = await dialogManager.confirm(`Delete conversation "${session.title}"? This cannot be undone.`, {
+      title: "Delete Conversation",
+      confirmText: "Delete",
+      isDestructive: true,
+    });
+    if (!confirmed) return;
     await invoke("delete_session", { sessionId: session.id });
     sessions = sessions.filter((s) => s.id !== session.id);
     if (activeSession?.id === session.id) {
@@ -283,7 +303,7 @@
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert("Failed to export chat: " + e);
+      await dialogManager.alert("Failed to export chat: " + e, "Export Failed");
     }
   }
 
@@ -329,6 +349,7 @@
     onOpenWorkspaceModal={() => (showWorkspaceModal = true)}
     onOpenThemeModal={() => (showThemeModal = true)}
     onOpenMcpModal={() => (showMcpModal = true)}
+    onToggleTerminal={() => (showTerminalDrawer = !showTerminalDrawer)}
   />
 
   <!-- Main Chat Surface -->
@@ -340,6 +361,7 @@
     {isStreaming}
     {streamingText}
     {toolPermission}
+    bind:showTerminalDrawer
     onSendPrompt={handleSendPrompt}
     onCancelPrompt={handleCancelPrompt}
     onToolResponse={handleToolResponse}

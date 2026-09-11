@@ -14,7 +14,9 @@
     ChevronDown,
     Palette,
     Server,
+    Terminal,
   } from "lucide-svelte";
+  import Tooltip from "$lib/components/Tooltip.svelte";
 
   let {
     workspaces = [],
@@ -31,6 +33,7 @@
     onOpenWorkspaceModal,
     onOpenThemeModal,
     onOpenMcpModal,
+    onToggleTerminal,
     envStatus = null,
   }: {
     workspaces: Workspace[];
@@ -47,6 +50,7 @@
     onOpenWorkspaceModal: () => void;
     onOpenThemeModal: () => void;
     onOpenMcpModal: () => void;
+    onToggleTerminal?: () => void;
     envStatus: any;
   } = $props();
 
@@ -67,10 +71,18 @@
         <h1 class="text-sm font-semibold tracking-tight text-primary-theme flex items-center gap-1.5">
           Gemini Desktop
         </h1>
-        <div class="flex items-center gap-1.5 text-[11px] text-muted-theme">
-          <span class="inline-block w-1.5 h-1.5 rounded-full {envStatus?.installed ? 'bg-emerald-400' : 'bg-amber-400'}"></span>
-          <span>{envStatus?.installed ? 'CLI Connected' : 'Mock / Standby'}</span>
-        </div>
+        <Tooltip
+          text={envStatus?.installed ? "Gemini CLI Connected" : "Mock / Standby Mode"}
+          subtext={envStatus?.installed
+            ? "Gemini CLI is installed and communicating via the Agent Client Protocol (ACP) JSON-RPC."
+            : "Gemini CLI not detected in system PATH. Operating in mock mode."}
+          position="right"
+        >
+          <div class="flex items-center gap-1.5 text-[11px] text-muted-theme cursor-help">
+            <span class="inline-block w-1.5 h-1.5 rounded-full {envStatus?.installed ? 'bg-emerald-400' : 'bg-amber-400'}"></span>
+            <span>{envStatus?.installed ? 'CLI Connected' : 'Mock / Standby'}</span>
+          </div>
+        </Tooltip>
       </div>
     </div>
   </div>
@@ -124,49 +136,106 @@
 
   <!-- Quick Action Navigation -->
   <div class="p-3 space-y-1 border-b border-subtle">
-    <button
-      onclick={onNewSession}
-      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface hover:bg-surface-hover text-primary-theme hover:border-accent-theme/50 border border-theme-default text-xs font-medium transition-all shadow-2xs group cursor-pointer"
+    <Tooltip
+      class="w-full block"
+      text="New Conversation"
+      subtext="Start a fresh chat thread with clean context in the current workspace"
+      shortcut="Ctrl+N"
+      position="right"
     >
-      <Plus size={15} class="text-accent-theme group-hover:scale-110 transition-transform" />
-      <span>New Chat</span>
-      <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+N</span>
-    </button>
+      <button
+        onclick={onNewSession}
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface hover:bg-surface-hover text-primary-theme hover:border-accent-theme/50 border border-theme-default text-xs font-medium transition-all shadow-2xs group cursor-pointer"
+      >
+        <Plus size={15} class="text-accent-theme group-hover:scale-110 transition-transform" />
+        <span>New Chat</span>
+        <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+N</span>
+      </button>
+    </Tooltip>
 
-    <button
-      onclick={onOpenSearch}
-      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors"
+    <Tooltip
+      class="w-full block"
+      text="Search History"
+      subtext="Search across past messages, code blocks, and sessions using local SQLite FTS5"
+      shortcut="Ctrl+K"
+      position="right"
     >
-      <Search size={14} class="text-muted-theme" />
-      <span>Search History</span>
-      <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+K</span>
-    </button>
+      <button
+        onclick={onOpenSearch}
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+      >
+        <Search size={14} class="text-muted-theme" />
+        <span>Search History</span>
+        <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+K</span>
+      </button>
+    </Tooltip>
 
-    <button
-      onclick={onOpenTemplates}
-      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors"
+    <Tooltip
+      class="w-full block"
+      text="Prompt Library"
+      subtext="Browse, manage, and quickly insert pre-built prompt templates for coding, refactoring, and review"
+      position="right"
     >
-      <BookOpen size={14} class="text-muted-theme" />
-      <span>Prompt Library</span>
-    </button>
+      <button
+        onclick={onOpenTemplates}
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+      >
+        <BookOpen size={14} class="text-muted-theme" />
+        <span>Prompt Library</span>
+      </button>
+    </Tooltip>
 
-    <button
-      onclick={onOpenThemeModal}
-      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors"
+    <Tooltip
+      class="w-full block"
+      text="Theme & Colors"
+      subtext="Customize UI palette with Midnight Dark, Cyberpunk, Obsidian, or custom colors"
+      position="right"
     >
-      <Palette size={14} class="text-accent-theme" />
-      <span>Theme & Colors</span>
-      <span class="ml-auto text-[10px] capitalize text-muted-theme font-medium">{themeManager.current.replace('-', ' ')}</span>
-    </button>
+      <button
+        onclick={onOpenThemeModal}
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+      >
+        <Palette size={14} class="text-accent-theme" />
+        <span>Theme & Colors</span>
+        <span class="ml-auto text-[10px] capitalize text-muted-theme font-medium">{themeManager.current.replace('-', ' ')}</span>
+      </button>
+    </Tooltip>
 
-    <button
-      onclick={onOpenMcpModal}
-      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+    <Tooltip
+      class="w-full block"
+      text="Model Context Protocol (MCP)"
+      subtext="Connect external tools, databases, and services (Azure DevOps, GitHub, SQLite) into Gemini CLI"
+      shortcut="Ctrl+M"
+      position="right"
     >
-      <Server size={14} class="text-accent-theme" />
-      <span>MCP Servers</span>
-      <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+M</span>
-    </button>
+      <button
+        onclick={onOpenMcpModal}
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+      >
+        <Server size={14} class="text-accent-theme" />
+        <span>MCP Servers</span>
+        <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+M</span>
+      </button>
+    </Tooltip>
+
+    {#if onToggleTerminal}
+      <Tooltip
+        class="w-full block"
+        text="Terminal Console"
+        subtext="Open embedded PowerShell drawer in workspace directory to inspect git, run tests, and reload .env"
+        shortcut="Ctrl+`"
+        position="right"
+      >
+        <button
+          onclick={onToggleTerminal}
+          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover text-secondary-theme hover:text-primary-theme text-xs transition-colors cursor-pointer"
+        >
+          <Terminal size={14} class="text-accent-theme" />
+          <span>Terminal Console</span>
+          <span class="ml-auto text-[10px] text-muted-theme font-mono">Ctrl+`</span>
+        </button>
+      </Tooltip>
+    {/if}
   </div>
 
   <!-- Chat History Sessions List -->
@@ -192,26 +261,28 @@
 
           <!-- Hover Action buttons -->
           <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-            <button
-              title="Rename"
-              class="p-1 hover:text-accent-theme rounded text-secondary-theme"
-              onclick={(e) => {
-                e.stopPropagation();
-                onRenameSession(session);
-              }}
-            >
-              <Edit2 size={12} />
-            </button>
-            <button
-              title="Delete"
-              class="p-1 hover:text-rose-400 rounded text-secondary-theme"
-              onclick={(e) => {
-                e.stopPropagation();
-                onDeleteSession(session);
-              }}
-            >
-              <Trash2 size={12} />
-            </button>
+            <Tooltip text="Rename Chat" position="top">
+              <button
+                class="p-1 hover:text-accent-theme rounded text-secondary-theme cursor-pointer"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onRenameSession(session);
+                }}
+              >
+                <Edit2 size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip text="Delete Chat" position="top">
+              <button
+                class="p-1 hover:text-rose-400 rounded text-secondary-theme cursor-pointer"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSession(session);
+                }}
+              >
+                <Trash2 size={12} />
+              </button>
+            </Tooltip>
           </div>
         </div>
       {/each}
@@ -219,8 +290,15 @@
   </div>
 
   <!-- Bottom Workspace Indicator -->
-  <div class="p-3 border-t border-subtle text-[11px] text-muted-theme flex items-center justify-between bg-surface/40">
-    <span class="truncate" title={activeWorkspace?.path}>{activeWorkspace?.path || "C:\\"}</span>
-    <span class="text-accent-theme font-mono shrink-0 ml-2">{activeWorkspace?.model}</span>
-  </div>
+  <Tooltip
+    class="w-full block"
+    text="Current Workspace Root"
+    subtext="All file attachments, git operations, and terminal executions run inside this directory."
+    position="top"
+  >
+    <div class="p-3 border-t border-subtle text-[11px] text-muted-theme flex items-center justify-between bg-surface/40 cursor-help">
+      <span class="truncate">{activeWorkspace?.path || "C:\\"}</span>
+      <span class="text-accent-theme font-mono shrink-0 ml-2">{activeWorkspace?.model}</span>
+    </div>
+  </Tooltip>
 </aside>

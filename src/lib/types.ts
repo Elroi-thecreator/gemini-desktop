@@ -94,3 +94,11 @@ export interface McpConfigResponse {
   file_path: string;
   mcp_servers: Record<string, McpServerConfig>;
 }
+
+export interface TerminalCommandResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  duration_ms: number;
+}
+

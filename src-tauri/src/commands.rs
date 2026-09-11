@@ -545,6 +545,84 @@ pub async fn save_mcp_config(workspace_path: Option<String>, mcp_servers: serde_
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalCommandResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub duration_ms: u64,
+}
+
+#[tauri::command]
+pub async fn run_terminal_command(
+    command: String,
+    workspace_path: Option<String>,
+) -> Result<TerminalCommandResult, String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Ok(TerminalCommandResult {
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: 0,
+            duration_ms: 0,
+        });
+    }
+
+    let start = std::time::Instant::now();
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = std::process::Command::new("powershell.exe");
+        c.arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
+            .arg(trimmed);
+        c
+    } else {
+        let mut c = std::process::Command::new("sh");
+        c.arg("-c").arg(trimmed);
+        c
+    };
+
+    if let Some(ref wp) = workspace_path {
+        let p = PathBuf::from(wp);
+        if p.is_dir() {
+            cmd.current_dir(p);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to execute command: {}", e))?;
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    Ok(TerminalCommandResult {
+        stdout,
+        stderr,
+        exit_code,
+        duration_ms,
+    })
+}
+
+#[tauri::command]
+pub async fn restart_gemini_session(state: State<'_, AppState>) -> Result<String, String> {
+    let mut ws_guard = state.active_process_workspace.lock().await;
+    *ws_guard = None;
+    state.acp_session.clear_sessions();
+    Ok("Gemini CLI session reset successfully. Next prompt will launch with updated environment.".to_string())
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

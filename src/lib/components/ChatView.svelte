@@ -8,7 +8,10 @@
     AttachmentItem,
   } from "$lib/types";
   import FilePickerModal from "$lib/components/FilePickerModal.svelte";
+  import TerminalDrawer from "$lib/components/TerminalDrawer.svelte";
+  import Tooltip from "$lib/components/Tooltip.svelte";
   import { renderMarkdown } from "$lib/markdown";
+  import { dialogManager } from "$lib/dialog.svelte";
   import {
     Send,
     Square,
@@ -32,13 +35,14 @@
   import { tick } from "svelte";
 
   let {
-    workspace,
-    session,
+    workspace = null,
+    session = null,
     workspaceFiles = [],
     messages = [],
     isStreaming = false,
     streamingText = "",
     toolPermission = null,
+    showTerminalDrawer = $bindable(false),
     onSendPrompt,
     onCancelPrompt,
     onToolResponse,
@@ -52,6 +56,7 @@
     isStreaming: boolean;
     streamingText: string;
     toolPermission: ToolPermissionPayload | null;
+    showTerminalDrawer?: boolean;
     onSendPrompt: (prompt: string) => void;
     onCancelPrompt: () => void;
     onToolResponse: (requestId: number, optionId?: string, allowed?: boolean) => void;
@@ -227,9 +232,17 @@
     });
   }
 
-  function handleCustomPathPrompt() {
+  async function handleCustomPathPrompt() {
     showAttachMenu = false;
-    const path = prompt("Enter relative or absolute path to attach (e.g. src/main.rs or docs/):");
+    const path = await dialogManager.prompt(
+      "Enter relative or absolute path to attach (e.g. src/main.rs or docs/):",
+      "",
+      {
+        title: "Attach Custom Path",
+        placeholder: "e.g. src/main.rs or docs/",
+        confirmText: "Attach",
+      }
+    );
     if (path && path.trim()) {
       const clean = path.trim().replace(/^@/, "");
       addAttachment({
@@ -314,25 +327,54 @@
 
     <div class="flex items-center gap-2">
       {#if onOpenMcpModal}
-        <button
-          onclick={onOpenMcpModal}
-          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default cursor-pointer"
-          title="Configure Model Context Protocol (MCP) Servers (Ctrl+M)"
+        <Tooltip
+          text="Model Context Protocol (MCP)"
+          subtext="Connect external tools, databases, and APIs like Azure DevOps, GitHub, and SQLite"
+          shortcut="Ctrl+M"
+          position="bottom"
         >
-          <Server size={14} class="text-accent-theme" />
-          <span>MCP Servers</span>
-        </button>
+          <button
+            onclick={onOpenMcpModal}
+            class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default cursor-pointer"
+          >
+            <Server size={14} class="text-accent-theme" />
+            <span>MCP Servers</span>
+          </button>
+        </Tooltip>
       {/if}
+
+      <!-- Terminal Drawer Toggle Button -->
+      <Tooltip
+        text="Integrated Terminal Console"
+        subtext="Open embedded PowerShell drawer to run builds, inspect git, and sync .env"
+        shortcut="Ctrl+`"
+        position="bottom"
+      >
+        <button
+          type="button"
+          onclick={() => (showTerminalDrawer = !showTerminalDrawer)}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border border-theme-default cursor-pointer {showTerminalDrawer ? 'bg-accent-subtle text-accent-theme border-accent-subtle' : 'text-secondary-theme hover:text-primary-theme bg-surface hover:bg-surface-hover'}"
+        >
+          <Terminal size={14} class={showTerminalDrawer ? 'text-accent-theme' : ''} />
+          <span>Terminal</span>
+        </button>
+      </Tooltip>
 
       <!-- Export Menu -->
       <div class="relative">
-        <button
-          onclick={() => (showExportMenu = !showExportMenu)}
-          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default cursor-pointer"
+        <Tooltip
+          text="Export Conversation"
+          subtext="Save this conversation thread as Markdown (.md), Plaintext (.txt), or JSON"
+          position="bottom"
         >
-          <Download size={14} />
-          <span>Export</span>
-        </button>
+          <button
+            onclick={() => (showExportMenu = !showExportMenu)}
+            class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-secondary-theme hover:text-primary-theme rounded-lg bg-surface hover:bg-surface-hover transition-colors border border-theme-default cursor-pointer"
+          >
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+        </Tooltip>
 
       {#if showExportMenu}
         <div class="absolute right-0 mt-1.5 w-40 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-30 text-xs">
@@ -368,6 +410,7 @@
           </button>
         </div>
       {/if}
+      </div>
     </div>
   </header>
 
@@ -649,16 +692,22 @@
         <div class="flex items-center gap-2.5 relative">
           <!-- Attachment Dropdown Action Button -->
           <div class="relative">
-            <button
-              type="button"
-              onclick={() => (showAttachMenu = !showAttachMenu)}
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors border border-theme-default cursor-pointer text-xs"
-              title="Attach files, directories, or Git context (@)"
+            <Tooltip
+              text="Attach Context"
+              subtext="Select workspace files, folders, or git diffs (@git:diff, @git:staged) to include in prompt"
+              shortcut="@"
+              position="top"
             >
-              <Paperclip size={13} class="text-accent-theme" />
-              <span class="font-medium">Attach</span>
-              <ChevronDown size={11} class="opacity-60" />
-            </button>
+              <button
+                type="button"
+                onclick={() => (showAttachMenu = !showAttachMenu)}
+                class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors border border-theme-default cursor-pointer text-xs"
+              >
+                <Paperclip size={13} class="text-accent-theme" />
+                <span class="font-medium">Attach</span>
+                <ChevronDown size={11} class="opacity-60" />
+              </button>
+            </Tooltip>
 
             <!-- Attachment Quick Menu -->
             {#if showAttachMenu}
@@ -741,34 +790,57 @@
             {/if}
           </div>
 
-          <span>Working Dir: <span class="text-secondary-theme font-mono">{workspace?.path || "C:\\"}</span></span>
+          <Tooltip
+            text="Workspace Working Directory"
+            subtext="Gemini CLI commands, MCP tools, and file paths execute relative to this root folder."
+            position="top"
+          >
+            <span class="cursor-help">Working Dir: <span class="text-secondary-theme font-mono">{workspace?.path || "C:\\"}</span></span>
+          </Tooltip>
         </div>
 
         <div class="flex items-center gap-2">
           {#if isStreaming}
-            <button
-              onclick={onCancelPrompt}
-              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-medium text-xs transition-colors cursor-pointer"
+            <Tooltip
+              text="Cancel Generation"
+              subtext="Interrupt active model output or tool execution"
+              shortcut="Esc"
+              position="top"
             >
-              <Square size={12} />
-              <span>Stop</span>
-              <span class="text-[10px] opacity-75 font-mono">Esc</span>
-            </button>
+              <button
+                onclick={onCancelPrompt}
+                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-medium text-xs transition-colors cursor-pointer"
+              >
+                <Square size={12} />
+                <span>Stop</span>
+                <span class="text-[10px] opacity-75 font-mono">Esc</span>
+              </button>
+            </Tooltip>
           {:else}
-            <button
-              onclick={handleSubmit}
-              disabled={!inputPrompt.trim() && attachments.length === 0}
-              class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-accent-theme hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent-theme text-white font-semibold text-xs transition-colors shadow-xs cursor-pointer"
+            <Tooltip
+              text="Send Message"
+              subtext="Submit prompt and attached files to Gemini"
+              shortcut="Enter"
+              position="top"
             >
-              <Send size={12} />
-              <span>Send</span>
-              <span class="text-[10px] opacity-75 font-mono">Enter</span>
-            </button>
+              <button
+                onclick={handleSubmit}
+                disabled={!inputPrompt.trim() && attachments.length === 0}
+                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-accent-theme hover:bg-accent-hover disabled:opacity-40 disabled:hover:bg-accent-theme text-white font-semibold text-xs transition-colors shadow-xs cursor-pointer"
+              >
+                <Send size={12} />
+                <span>Send</span>
+                <span class="text-[10px] opacity-75 font-mono">Enter</span>
+              </button>
+            </Tooltip>
           {/if}
         </div>
       </div>
     </div>
   </div>
+
+  <!-- Terminal Drawer -->
+  <TerminalDrawer bind:isOpen={showTerminalDrawer} {workspace} />
 
   <!-- Workspace File / Folder Picker Modal -->
   <FilePickerModal
