@@ -23,10 +23,13 @@ do:
   - "Use Tailwind CSS v4 theme colors (`slate-*`, `sky-*`, `emerald-*`, `rose-*`) for consistent dark-mode UI design."
   - "Sanitize and render markdown safely with code syntax highlighting using `marked` and `highlight.js`."
   - "Ensure streaming token updates append smoothly without triggering layout jank or memory leaks."
+  - "Use `dialogManager` (`dialog.alert`, `dialog.confirm`, `dialog.prompt`) with `DialogModal.svelte` for asynchronous, theme-adaptive user confirmations instead of browser dialogs."
+  - "Wrap interactive icon buttons, actions, and status indicators with `Tooltip.svelte` for accessibility and keyboard/hover discoverability."
 
 dont:
   - "Do not use legacy Svelte 3/4 `export let` syntax or stores (`writable`) when modern runes are available."
   - "Do not use inline arbitrary style attributes when Tailwind utility classes suffice."
+  - "Do not use browser-native blocking modals (`window.alert`, `window.confirm`, `window.prompt`) which freeze the webview and disrupt IPC messaging."
 
 reason:
   "Svelte 5 runes provide fine-grained reactivity, reduced boilerplate, and optimal bundle size for desktop SPAs."

@@ -1,0 +1,40 @@
+id: PROD-TERM-001
+type: product_standard
+title: Integrated Terminal Drawer, PowerShell Workspace Execution & Session Sync
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: frontend_and_core
+
+applies_to:
+  - frontend
+  - backend
+  - terminal
+  - process_manager
+
+rule:
+  "The desktop app must provide an integrated workspace terminal drawer (`Ctrl+` `) that executes commands directly in the active workspace root with exit code, duration tracking, and environment synchronization."
+
+do:
+  - "Provide a collapsible bottom drawer toggleable via shortcut (`Ctrl+` `) or UI buttons with height expansion controls."
+  - "Execute commands via native shell (`powershell.exe` on Windows, `sh` on Unix) bound to the current workspace root directory."
+  - "Capture and format stdout, stderr, exit code, and millisecond execution duration in a scrollable console."
+  - "Support command history recall via keyboard (`↑`/`↓`) and console clearing (`clear`/`cls`)."
+  - "Offer quick-action buttons for common developer tasks (`git status`, `git diff --stat`, directory listing)."
+  - "Provide an interactive 'Reload Gemini' environment sync action (`restart_gemini_session`) to clear active ACP sessions so newly edited `.env` variables take immediate effect."
+
+dont:
+  - "Do not block the webview UI thread during terminal execution."
+  - "Do not run terminal commands without binding to the active workspace directory when configured."
+
+reason:
+  "Developers frequently need to inspect repository status, verify build scripts, or check git diffs alongside conversation with the AI model without switching to external terminal windows."
+
+related_items:
+  - PROD-WS-001
+  - ARCH-PROC-001
+  - DEV-SVELTE-001

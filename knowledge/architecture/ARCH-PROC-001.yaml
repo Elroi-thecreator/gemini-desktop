@@ -22,6 +22,8 @@ do:
   - "Configure `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` using `SetInformationJobObject`."
   - "Assign every spawned child process handle to this Job Object immediately upon creation (`AssignProcessToJobObject`)."
   - "Wrap Windows handles safely with `Send` and `Sync` implementations."
+  - "Parse workspace-level `.env` and `.env.local` files via `parse_dotenv_file` and automatically inject variables into spawned child processes (`spawn_gemini`, `run_terminal_command`)."
+  - "Provide safe session reset (`restart_gemini_session`) so updated environment variables take effect on the next prompt invocation."
 
 dont:
   - "Do not leave child processes running in the background when the user closes the main desktop window."

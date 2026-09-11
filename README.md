@@ -58,12 +58,41 @@ A modern, blazing-fast native desktop application for interacting with the **Gem
   - Built-in prompt library for common developer workflows (Architecture Analysis, Test Generation, Code Refactoring, Documentation, Dead Code Detection).
   - Add your own custom prompt templates with category filtering.
 
+- **🖥️ Integrated Workspace Terminal Drawer (`Ctrl+` `)**
+  - Toggleable PowerShell terminal drawer docked directly inside the desktop window (`Ctrl+` ` or status toggle).
+  - Automatically executes commands inside the active workspace root with exit codes, execution duration, and full stdout/stderr capture.
+  - Interactive history recall (`↑`/`↓`), clear commands (`clear`/`cls`), and quick-action shortcuts (`git status`, `git diff --stat`, `dir`).
+  - Height adjustment controls (standard drawer vs. expanded 65vh view).
+  - 1-click **"Reload Gemini"** environment sync action (`restart_gemini_session`) to reload modified `.env` values into the AI session immediately.
+
+- **🌱 Workspace `.env` & `.env.local` Auto-Injection**
+  - Native parsing and automatic injection of `.env` and `.env.local` variables located in the active workspace root.
+  - Automatically passes secrets, custom tokens, and configuration variables directly to both Gemini CLI ACP processes and terminal commands.
+
+- **🔒 Custom App Dialogs & Accessible Tooltips**
+  - Sleek, non-blocking theme-adaptive modal dialogs (`alert`, `confirm`, `prompt`) replacing webview-freezing browser popups.
+  - Full keyboard accessibility, destructive action warnings, and clean input prompts.
+  - Universal tooltip framework with rich contextual guidance across all icon actions, sidebar controls, and tool intercept triggers.
+
 - **🛡️ Process Management & Safety**
   - Supervised with native **Windows Job Objects** (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`).
   - Guarantees child CLI processes are terminated cleanly on exit without leaving orphaned background tasks.
   - Fallback mock / offline mode when the CLI is in standby.
 
 ---
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action | Scope |
+| :--- | :--- | :--- |
+| **`Ctrl + ` `** / **`Ctrl + ~`** | Toggle Integrated Workspace Terminal Drawer | Global |
+| **`Ctrl + M`** | Toggle MCP Server Manager | Global |
+| **`Ctrl + K`** | Open Full-Text SQLite FTS5 Search | Global |
+| **`Ctrl + N`** | Start New Chat Session | Global |
+| **`@`** | Trigger Context Mention Autocomplete (Files, Dirs, Git) | Prompt Textarea |
+| **`Enter`** | Send Prompt / Execute Terminal Command | Prompt / Terminal |
+| **`Shift + Enter`** | Insert Newline in Prompt | Prompt Textarea |
+| **`Esc`** | Close Open Modals / Autocomplete Popover | Global |
 
 ## 📥 Installation & Downloads
 
