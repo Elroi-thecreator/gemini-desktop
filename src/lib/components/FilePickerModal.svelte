@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import type { WorkspaceFileEntry } from "$lib/types";
   import { Search, X, File, Folder, FileCode, CornerDownLeft } from "lucide-svelte";
 
@@ -77,6 +77,14 @@
       onClose();
     }
   }
+
+  let searchInputEl: HTMLInputElement | null = $state(null);
+
+  $effect(() => {
+    if (isOpen) {
+      setTimeout(() => searchInputEl?.focus(), 50);
+    }
+  });
 </script>
 
 {#if isOpen}
@@ -89,7 +97,10 @@
     <div
       class="w-full max-w-xl bg-surface border border-theme-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[75vh]"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
       role="dialog"
+      aria-modal="true"
+      tabindex="-1"
     >
       <div class="px-4 py-3 border-b border-subtle flex items-center justify-between bg-surface-elevated/40">
         <div class="flex items-center gap-2">
@@ -113,10 +124,10 @@
         <Search size={15} class="text-muted-theme shrink-0" />
         <input
           type="text"
+          bind:this={searchInputEl}
           bind:value={search}
           placeholder={mode === "directory" ? "Search folders or type path... (e.g. src/components/)" : "Search files or type path... (e.g. src/main.rs)"}
           class="flex-1 bg-transparent text-primary-theme text-xs focus:outline-none placeholder:text-muted-theme"
-          autofocus
         />
         {#if search.trim()}
           <button

@@ -22,6 +22,7 @@
 
 <div
   class="relative {className || 'inline-flex items-center'}"
+  role="presentation"
   onmouseenter={() => (isHovered = true)}
   onmouseleave={() => (isHovered = false)}
 >

@@ -31,6 +31,11 @@
     ChevronDown,
     Plus,
     Server,
+    Copy,
+    Check,
+    RotateCcw,
+    Edit3,
+    ArrowDown,
   } from "lucide-svelte";
   import { tick } from "svelte";
 
@@ -68,6 +73,8 @@
   let chatViewport: HTMLDivElement | null = $state(null);
   let textareaElem: HTMLTextAreaElement | null = $state(null);
   let showExportMenu = $state(false);
+  let isUserScrolledUp = $state(false);
+  let copiedMessageId = $state<string | null>(null);
 
   // File & Git Attachments State
   let attachments: AttachmentItem[] = $state([]);
@@ -151,18 +158,6 @@
     return results;
   });
 
-  function scrollToBottom() {
-    if (chatViewport) {
-      chatViewport.scrollTop = chatViewport.scrollHeight;
-    }
-  }
-
-  $effect(() => {
-    // Scroll whenever messages update or streaming text changes
-    if (messages || streamingText) {
-      tick().then(scrollToBottom);
-    }
-  });
 
   function checkMentionTrigger() {
     if (!textareaElem) return;
@@ -285,6 +280,82 @@
     }
   }
 
+  function handleScroll() {
+    if (!chatViewport) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatViewport;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    isUserScrolledUp = distanceFromBottom > 80;
+  }
+
+  function scrollToBottom(smooth: boolean = false) {
+    if (!chatViewport) return;
+    isUserScrolledUp = false;
+    if (smooth) {
+      chatViewport.scrollTo({ top: chatViewport.scrollHeight, behavior: "smooth" });
+    } else {
+      chatViewport.scrollTop = chatViewport.scrollHeight;
+    }
+  }
+
+  $effect(() => {
+    // React to new tokens, messages, or streaming state changes
+    const _txt = streamingText;
+    const _count = messages.length;
+    const _stream = isStreaming;
+
+    if (!isUserScrolledUp && chatViewport) {
+      tick().then(() => {
+        if (!isUserScrolledUp && chatViewport) {
+          chatViewport.scrollTop = chatViewport.scrollHeight;
+        }
+      });
+    }
+  });
+
+  function formatTime(isoStr?: string): string {
+    if (!isoStr) return "";
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    } catch {
+      return "";
+    }
+  }
+
+  async function handleCopyMessage(id: string, content: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      copiedMessageId = id;
+      setTimeout(() => {
+        if (copiedMessageId === id) {
+          copiedMessageId = null;
+        }
+      }, 2000);
+    } catch (e) {
+      console.error("Failed to copy message:", e);
+    }
+  }
+
+  function handleEditPrompt(promptText: string) {
+    inputPrompt = promptText;
+    tick().then(() => {
+      if (textareaElem) {
+        textareaElem.focus();
+        textareaElem.setSelectionRange(inputPrompt.length, inputPrompt.length);
+      }
+    });
+  }
+
+  function handleRegenerate() {
+    if (isStreaming) return;
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUserMsg) {
+      isUserScrolledUp = false;
+      tick().then(() => scrollToBottom(true));
+      onSendPrompt(lastUserMsg.content);
+    }
+  }
+
   function handleSubmit() {
     const trimmed = inputPrompt.trim();
     if ((!trimmed && attachments.length === 0) || isStreaming) return;
@@ -307,6 +378,8 @@
     inputPrompt = "";
     attachments = [];
     showMentionPopover = false;
+    isUserScrolledUp = false;
+    tick().then(() => scrollToBottom(true));
     onSendPrompt(finalPrompt);
   }
 </script>
@@ -415,7 +488,7 @@
   </header>
 
   <!-- Messages Viewport -->
-  <div bind:this={chatViewport} class="flex-1 overflow-y-auto p-6 space-y-6">
+  <div bind:this={chatViewport} onscroll={handleScroll} class="flex-1 overflow-y-auto p-6 space-y-6 relative">
     {#if messages.length === 0 && !isStreaming}
       <div class="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-20 text-muted-theme">
         <div class="w-12 h-12 rounded-2xl bg-accent-subtle border border-accent-subtle flex items-center justify-center text-accent-theme mb-4 shadow-inner">
@@ -428,7 +501,7 @@
       </div>
     {/if}
 
-    {#each messages as msg (msg.id)}
+    {#each messages as msg, i (msg.id)}
       <div class="flex gap-3.5 {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
         {#if msg.role !== 'user'}
           <div class="w-7 h-7 rounded-lg bg-accent-subtle text-accent-theme border border-accent-subtle flex items-center justify-center shrink-0 mt-1">
@@ -436,12 +509,84 @@
           </div>
         {/if}
 
-        <div class="max-w-3xl {msg.role === 'user' ? 'bg-bubble-user border border-bubble-user text-primary-theme rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs shadow-xs' : 'bg-bubble-assistant border border-bubble-assistant rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-primary-theme shadow-xs w-full'}">
+        <div class="max-w-3xl group {msg.role === 'user' ? 'bg-bubble-user border border-bubble-user text-primary-theme rounded-2xl rounded-tr-sm px-4 py-2.5 text-xs shadow-xs' : 'bg-bubble-assistant border border-bubble-assistant rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-primary-theme shadow-xs w-full'}">
           {#if msg.role === 'user'}
             <div class="whitespace-pre-wrap leading-relaxed select-text">{msg.content}</div>
+            <div class="mt-1.5 flex items-center justify-end gap-1.5 text-[10px] text-muted-theme select-none opacity-0 group-hover:opacity-100 transition-opacity">
+              {#if msg.created_at}
+                <span class="mr-1">{formatTime(msg.created_at)}</span>
+              {/if}
+              <Tooltip text={copiedMessageId === msg.id ? "Copied!" : "Copy prompt"} position="top">
+                <button
+                  type="button"
+                  onclick={() => handleCopyMessage(msg.id, msg.content)}
+                  class="p-1 rounded hover:bg-surface-elevated text-secondary-theme hover:text-primary-theme transition-colors cursor-pointer flex items-center gap-1"
+                  aria-label="Copy prompt"
+                >
+                  {#if copiedMessageId === msg.id}
+                    <Check size={11} class="text-emerald-400" />
+                    <span class="text-emerald-400 font-medium">Copied</span>
+                  {:else}
+                    <Copy size={11} />
+                  {/if}
+                </button>
+              </Tooltip>
+              <Tooltip text="Edit prompt" position="top">
+                <button
+                  type="button"
+                  onclick={() => handleEditPrompt(msg.content)}
+                  class="p-1 rounded hover:bg-surface-elevated text-secondary-theme hover:text-primary-theme transition-colors cursor-pointer flex items-center gap-1"
+                  aria-label="Edit prompt"
+                >
+                  <Edit3 size={11} />
+                </button>
+              </Tooltip>
+            </div>
           {:else}
             <div class="markdown-body">
               {@html renderMarkdown(msg.content)}
+            </div>
+            <div class="mt-2.5 pt-2 border-t border-subtle/50 flex items-center justify-between text-[11px] text-muted-theme select-none">
+              <div class="flex items-center gap-2">
+                {#if msg.created_at}
+                  <span>{formatTime(msg.created_at)}</span>
+                {/if}
+                {#if msg.token_count > 0}
+                  <span>&bull; ~{msg.token_count} tokens</span>
+                {/if}
+              </div>
+              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Tooltip text={copiedMessageId === msg.id ? "Copied!" : "Copy response"} position="top">
+                  <button
+                    type="button"
+                    onclick={() => handleCopyMessage(msg.id, msg.content)}
+                    class="p-1 rounded hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+                    aria-label="Copy response"
+                  >
+                    {#if copiedMessageId === msg.id}
+                      <Check size={13} class="text-emerald-400" />
+                      <span class="text-emerald-400 font-medium">Copied</span>
+                    {:else}
+                      <Copy size={13} />
+                      <span>Copy</span>
+                    {/if}
+                  </button>
+                </Tooltip>
+
+                {#if !messages.slice(i + 1).some(m => m.role === 'assistant') && !isStreaming}
+                  <Tooltip text="Regenerate this response" position="top">
+                    <button
+                      type="button"
+                      onclick={handleRegenerate}
+                      class="p-1 rounded hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+                      aria-label="Regenerate response"
+                    >
+                      <RotateCcw size={13} />
+                      <span>Retry</span>
+                    </button>
+                  </Tooltip>
+                {/if}
+              </div>
             </div>
           {/if}
         </div>
@@ -472,6 +617,23 @@
             </div>
           {/if}
         </div>
+      </div>
+    {/if}
+
+    <!-- Floating Scroll to Bottom Button -->
+    {#if isUserScrolledUp}
+      <div class="sticky bottom-2 flex justify-center pointer-events-none z-20">
+        <Tooltip text="Scroll to bottom" position="top">
+          <button
+            type="button"
+            onclick={() => scrollToBottom(true)}
+            class="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-elevated hover:bg-surface-hover border border-theme-default shadow-lg text-xs text-primary-theme font-medium transition-all hover:scale-105 cursor-pointer animate-fade-in"
+            aria-label="Scroll to bottom"
+          >
+            <ArrowDown size={13} class="text-accent-theme animate-bounce" />
+            <span>Latest messages</span>
+          </button>
+        </Tooltip>
       </div>
     {/if}
   </div>
@@ -848,7 +1010,7 @@
     mode={filePickerMode}
     workspaceFiles={workspaceFiles || []}
     onClose={() => (showFilePickerModal = false)}
-    onSelect={(entry) => {
+    onSelect={(entry: WorkspaceFileEntry) => {
       addAttachment({
         id: "att-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
         name: entry.name + (entry.is_dir ? "/" : ""),
@@ -856,7 +1018,7 @@
         kind: entry.is_dir ? "directory" : "file",
       });
     }}
-    onSelectCustomPath={(customPath) => {
+    onSelectCustomPath={(customPath: string) => {
       const clean = customPath.replace(/^@/, "").trim();
       addAttachment({
         id: "att-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),

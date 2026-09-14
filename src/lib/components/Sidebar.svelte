@@ -251,8 +251,16 @@
     {:else}
       {#each sessions as session (session.id)}
         <div
+          role="button"
+          tabindex="0"
           class="group flex items-center justify-between px-2.5 py-2 rounded-lg text-xs cursor-pointer transition-colors {activeSession?.id === session.id ? 'bg-surface-elevated text-primary-theme font-medium border border-subtle shadow-xs' : 'text-secondary-theme hover:bg-surface-hover hover:text-primary-theme'}"
           onclick={() => onSelectSession(session)}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelectSession(session);
+            }
+          }}
         >
           <div class="flex items-center gap-2 truncate flex-1 mr-1">
             <MessageSquare size={14} class="shrink-0 {activeSession?.id === session.id ? 'text-accent-theme' : 'text-muted-theme'}" />

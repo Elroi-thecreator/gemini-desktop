@@ -31,6 +31,14 @@
     }
   }
 
+  let searchInputEl: HTMLInputElement | null = $state(null);
+
+  $effect(() => {
+    if (isOpen) {
+      setTimeout(() => searchInputEl?.focus(), 50);
+    }
+  });
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       onClose();
@@ -49,18 +57,21 @@
     <div
       class="w-full max-w-xl bg-surface border border-theme-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[70vh]"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
       role="dialog"
+      aria-modal="true"
+      tabindex="-1"
     >
       <!-- Search Input Header -->
       <div class="p-3 border-b border-subtle flex items-center gap-2.5 bg-surface-elevated/40">
         <Search size={16} class="text-accent-theme shrink-0" />
         <input
           type="text"
+          bind:this={searchInputEl}
           bind:value={query}
           oninput={handleInput}
           placeholder="Search all conversations via SQLite FTS5... (Esc to close)"
           class="flex-1 bg-transparent text-primary-theme text-xs focus:outline-none placeholder:text-muted-theme"
-          autofocus
         />
         <button onclick={onClose} class="p-1 text-secondary-theme hover:text-primary-theme rounded">
           <X size={16} />

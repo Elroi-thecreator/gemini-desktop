@@ -27,12 +27,16 @@
   <div
     class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
     onclick={onClose}
+    onkeydown={(e) => e.key === "Escape" && onClose()}
     role="presentation"
   >
     <div
       class="w-full max-w-2xl bg-surface border border-theme-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
       role="dialog"
+      aria-modal="true"
+      tabindex="-1"
     >
       <!-- Header -->
       <div class="px-5 py-4 border-b border-subtle flex items-center justify-between bg-surface-elevated/40">
@@ -40,7 +44,7 @@
           <BookOpen size={18} class="text-accent-theme" />
           <h2 class="text-sm font-semibold text-primary-theme">Prompt Template Library</h2>
         </div>
-        <button onclick={onClose} class="p-1 text-secondary-theme hover:text-primary-theme rounded">
+        <button onclick={onClose} class="p-1 text-secondary-theme hover:text-primary-theme rounded" aria-label="Close modal">
           <X size={16} />
         </button>
       </div>

@@ -36,11 +36,13 @@
   <div
     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
     onclick={() => dialogManager.handleCancel()}
+    onkeydown={(e) => e.key === 'Escape' && dialogManager.handleCancel()}
     role="presentation"
   >
     <div
       class="w-full max-w-md bg-surface border border-theme-default rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
       role="dialog"
       aria-modal="true"
       tabindex="-1"

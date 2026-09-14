@@ -127,6 +127,68 @@ pub fn save_message(state: State<AppState>, msg: Message) -> Result<(), String> 
     state.db.save_message(msg)
 }
 
+/// Inspects prompt for git context tokens (@git:diff, @git:staged, @git:status)
+/// and resolves real working tree git output if workspace_path is a git repository.
+pub fn resolve_git_context(prompt: &str, workspace_path: Option<&std::path::Path>) -> String {
+    if !prompt.contains("@git:diff") && !prompt.contains("@git:staged") && !prompt.contains("@git:status") {
+        return prompt.to_string();
+    }
+
+    let mut expanded = prompt.to_string();
+
+    let run_git = |args: &[&str]| -> Option<String> {
+        let ws = workspace_path?;
+        if !ws.exists() {
+            return None;
+        }
+        let mut cmd = Command::new("git");
+        cmd.args(args).current_dir(ws);
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+
+        let out = cmd.output().ok()?;
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Some(s)
+        } else {
+            None
+        }
+    };
+
+    if expanded.contains("@git:diff") {
+        let diff_content = match run_git(&["diff"]) {
+            Some(d) if !d.is_empty() => format!("\n```diff\n{}\n```", d),
+            Some(_) => "\n*(Working tree clean - no unstaged changes)*".to_string(),
+            None => "\n*(Git diff unavailable or not a git repository)*".to_string(),
+        };
+        expanded = expanded.replace("@git:diff", &format!("\n[Context: Git Diff]{}\n", diff_content));
+    }
+
+    if expanded.contains("@git:staged") {
+        let staged_content = match run_git(&["diff", "--cached"]) {
+            Some(d) if !d.is_empty() => format!("\n```diff\n{}\n```", d),
+            Some(_) => "\n*(No changes staged for commit)*".to_string(),
+            None => "\n*(Git staged diff unavailable or not a git repository)*".to_string(),
+        };
+        expanded = expanded.replace("@git:staged", &format!("\n[Context: Git Staged Diff]{}\n", staged_content));
+    }
+
+    if expanded.contains("@git:status") {
+        let status_content = match run_git(&["status", "--short", "--branch"]) {
+            Some(s) if !s.is_empty() => format!("\n```text\n{}\n```", s),
+            Some(_) => "\n*(Clean working tree)*".to_string(),
+            None => "\n*(Git status unavailable or not a git repository)*".to_string(),
+        };
+        expanded = expanded.replace("@git:status", &format!("\n[Context: Git Status]{}\n", status_content));
+    }
+
+    expanded.trim().to_string()
+}
+
 #[tauri::command]
 pub async fn send_prompt(
     app: AppHandle,
@@ -232,7 +294,7 @@ pub async fn send_prompt(
                     "protocolVersion": 1,
                     "clientInfo": {
                         "name": "GeminiDesktop",
-                        "version": "0.2.2"
+                        "version": env!("CARGO_PKG_VERSION")
                     }
                 })).await;
             }
@@ -288,12 +350,14 @@ pub async fn send_prompt(
         }
     };
 
+    let final_prompt = resolve_git_context(&prompt, ws_path.as_deref());
+
     let mut prompt_params = serde_json::json!({
         "sessionId": acp_session_id,
         "prompt": [
             {
                 "type": "text",
-                "text": prompt
+                "text": final_prompt
             }
         ]
     });
@@ -587,7 +651,19 @@ pub async fn run_terminal_command(
     if let Some(ref wp) = workspace_path {
         let p = PathBuf::from(wp);
         if p.is_dir() {
-            cmd.current_dir(p);
+            cmd.current_dir(&p);
+
+            // Auto-inject workspace .env and .env.local into terminal commands
+            let dot_env = p.join(".env");
+            if dot_env.is_file() {
+                let envs = ProcessSupervisor::parse_dotenv_file(&dot_env);
+                cmd.envs(&envs);
+            }
+            let dot_env_local = p.join(".env.local");
+            if dot_env_local.is_file() {
+                let envs = ProcessSupervisor::parse_dotenv_file(&dot_env_local);
+                cmd.envs(&envs);
+            }
         }
     }
 
@@ -661,6 +737,45 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_terminal_command_dotenv_injection() {
+        let temp_dir = std::env::temp_dir().join(format!("gemini_test_term_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let dot_env = temp_dir.join(".env");
+        std::fs::write(&dot_env, "CUSTOM_TEST_ENV=SecretAlphaValue123\n").unwrap();
+
+        let ws_str = temp_dir.to_string_lossy().to_string();
+        let cmd_str = if cfg!(target_os = "windows") {
+            "Write-Output $env:CUSTOM_TEST_ENV".to_string()
+        } else {
+            "echo $CUSTOM_TEST_ENV".to_string()
+        };
+
+        let res = run_terminal_command(cmd_str, Some(ws_str)).await.expect("run_terminal_command failed");
+        assert_eq!(res.exit_code, 0);
+        assert!(res.stdout.contains("SecretAlphaValue123"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_resolve_git_context() {
+        // Without tokens, returns input unchanged
+        let raw = "Please explain the architecture";
+        assert_eq!(resolve_git_context(raw, None), raw);
+
+        // With @git:diff on None path
+        let with_diff = "Review this: @git:diff";
+        let resolved = resolve_git_context(with_diff, None);
+        assert!(resolved.contains("[Context: Git Diff]"));
+
+        // With @git:status
+        let with_status = "Status: @git:status";
+        let resolved_status = resolve_git_context(with_status, None);
+        assert!(resolved_status.contains("[Context: Git Status]"));
     }
 }
 

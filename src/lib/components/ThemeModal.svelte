@@ -25,6 +25,7 @@
     role="presentation"
     class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 select-none"
     onclick={onClose}
+    onkeydown={handleKeyDown}
   >
     <!-- Modal Card -->
     <div
@@ -34,6 +35,7 @@
       tabindex="-1"
       class="w-full max-w-md bg-surface border border-theme-default rounded-xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <!-- Header -->
       <div class="px-5 py-4 border-b border-subtle flex items-center justify-between">

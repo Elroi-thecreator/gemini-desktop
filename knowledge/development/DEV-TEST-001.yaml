@@ -16,16 +16,18 @@ applies_to:
   - ci_cd
 
 rule:
-  "Every change to the codebase must pass type validation (`npm run check`), production frontend compilation (`npm run build`), and Rust backend unit tests (`cargo test --lib`) before checking into git."
+  "Every change to the codebase must pass type validation (`npm run check`) and Rust backend unit tests (`cargo test --lib`). To produce or verify native desktop production release executables and Windows installers, run `npm run tauri build`. Note that `npm run build` compiles only the frontend static SPA into `build/` and does not compile native binaries."
 
 do:
   - "Run `svelte-kit sync && svelte-check --tsconfig ./tsconfig.json` to verify TypeScript and template integrity."
   - "Maintain in-memory SQLite unit tests in `database.rs` to verify table initialization, default seeding, cascades, and FTS5 search."
-  - "Run `npm run build` to verify `@sveltejs/adapter-static` successfully emits all bundled HTML, JS, and CSS files."
+  - "Always run `npm run tauri build` to compile the native Rust backend and package production desktop artifacts (`gemini-desktop.exe`, `.msi`, and `-setup.exe`) in `src-tauri/target/release/`."
+  - "Use `npm run build` solely for testing frontend static compilation into `build/`."
 
 dont:
   - "Do not disable or bypass compiler warnings or type checks using `@ts-ignore` without documented justification."
   - "Do not commit changes with failing Rust tests."
+  - "Do not run `npm run build` when asked to build or verify a release of the desktop application; `npm run build` only bundles webview assets without compiling Rust or packaging native executables."
 
 reason:
   "Automated gate checks prevent broken production binaries and ensure continuous release reliability across all platforms."

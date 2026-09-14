@@ -48,6 +48,7 @@
   let formArgsText = $state("");
   let formEnvList = $state<{ key: string; value: string }[]>([]);
   let formCwd = $state("");
+  let formDisabled = $state(false);
 
   // Raw JSON editor state
   let rawJsonText = $state("");
@@ -66,8 +67,9 @@
     };
   }
 
-  const PRESETS: Preset[] = [
-    {
+  let PRESETS: Preset[] = $derived.by(() => {
+    const list: Preset[] = [
+      {
       id: "github-docker",
       label: "GitHub (Docker)",
       description: "Official GitHub MCP server running inside Docker",
@@ -153,6 +155,8 @@
       },
     },
   ];
+  return list;
+});
 
   // Load config whenever modal opens or scope changes
   $effect(() => {
@@ -198,6 +202,7 @@
     formCommand = cfg.command || "";
     formArgsText = (cfg.args || []).join("\n");
     formCwd = cfg.cwd || "";
+    formDisabled = cfg.disabled ?? false;
 
     const envs: { key: string; value: string }[] = [];
     if (cfg.env) {
@@ -215,6 +220,7 @@
     formArgsText = "-y\n@modelcontextprotocol/server-memory";
     formEnvList = [];
     formCwd = "";
+    formDisabled = false;
   }
 
   function applyPreset(preset: Preset) {
@@ -222,6 +228,7 @@
     formCommand = preset.config.command;
     formArgsText = preset.config.args.join("\n");
     formCwd = preset.config.cwd || "";
+    formDisabled = false;
 
     const envs: { key: string; value: string }[] = [];
     for (const [k, v] of Object.entries(preset.config.env)) {
@@ -241,6 +248,23 @@
 
   function removeEnvRow(index: number) {
     formEnvList = formEnvList.filter((_, i) => i !== index);
+  }
+
+  async function toggleServerDisabled(key: string, e: MouseEvent) {
+    e.stopPropagation();
+    const updatedServers = { ...servers };
+    const current = updatedServers[key];
+    if (current) {
+      const willDisable = !current.disabled;
+      updatedServers[key] = {
+        ...current,
+        disabled: willDisable ? true : undefined,
+      };
+      if (selectedServerKey === key) {
+        formDisabled = willDisable;
+      }
+      await persistServers(updatedServers, selectedServerKey);
+    }
   }
 
   async function handleSaveForm() {
@@ -272,6 +296,7 @@
       args: args.length > 0 ? args : undefined,
       env: Object.keys(envObj).length > 0 ? envObj : undefined,
       cwd: formCwd.trim() ? formCwd.trim() : undefined,
+      disabled: formDisabled ? true : undefined,
     };
 
     // If key was renamed, delete old key
@@ -348,11 +373,13 @@
   <div
     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
     onclick={onClose}
+    onkeydown={(e) => e.key === "Escape" && onClose()}
     role="presentation"
   >
     <div
       class="w-full max-w-3xl bg-surface border border-theme-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
       role="dialog"
       aria-modal="true"
       tabindex="-1"
@@ -508,17 +535,36 @@
                 {:else}
                   <div class="space-y-1">
                     {#each Object.keys(servers) as key}
-                      <button
-                        onclick={() => selectServer(key)}
-                        class="w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between {selectedServerKey === key ? 'bg-surface-elevated text-accent-theme font-medium border border-subtle shadow-xs' : 'text-secondary-theme hover:bg-surface-elevated/40'}"
+                      <div
+                        class="w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors flex items-center justify-between group {selectedServerKey === key ? 'bg-surface-elevated text-accent-theme font-medium border border-subtle shadow-xs' : 'text-secondary-theme hover:bg-surface-elevated/40'}"
                       >
-                        <div class="truncate">
-                          <span class="font-mono text-xs">{key}</span>
-                          <span class="text-[10px] text-muted-theme block truncate font-mono">
+                        <button
+                          type="button"
+                          onclick={() => selectServer(key)}
+                          class="truncate flex-1 text-left cursor-pointer"
+                        >
+                          <div class="flex items-center gap-1.5 truncate">
+                            <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0 {servers[key].disabled ? 'bg-amber-400/80' : 'bg-emerald-400'}"></span>
+                            <span class="font-mono text-xs truncate {servers[key].disabled ? 'line-through text-muted-theme' : ''}">{key}</span>
+                          </div>
+                          <span class="text-[10px] text-muted-theme block truncate font-mono ml-3">
                             {servers[key].command} {(servers[key].args || []).slice(0, 2).join(' ')}
                           </span>
-                        </div>
-                      </button>
+                        </button>
+
+                        <Tooltip text={servers[key].disabled ? "Enable server" : "Disable server"} position="top">
+                          <button
+                            type="button"
+                            onclick={(e) => toggleServerDisabled(key, e)}
+                            class="p-1 rounded hover:bg-surface-hover transition-colors shrink-0 ml-1 cursor-pointer"
+                            aria-label={servers[key].disabled ? "Enable server" : "Disable server"}
+                          >
+                            <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium {servers[key].disabled ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}">
+                              {servers[key].disabled ? 'Off' : 'On'}
+                            </span>
+                          </button>
+                        </Tooltip>
+                      </div>
                     {/each}
                   </div>
                 {/if}
@@ -552,6 +598,33 @@
 
           <!-- Right Editor: Server details form -->
           <div class="flex-1 p-5 overflow-y-auto space-y-4 text-xs">
+            <!-- Server Status Active/Disabled Toggle -->
+            <div class="flex items-center justify-between p-3 bg-app rounded-xl border border-theme-default">
+              <div class="space-y-0.5">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-semibold text-primary-theme">Server Status</span>
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold {formDisabled ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}">
+                    {formDisabled ? 'Disabled' : 'Active'}
+                  </span>
+                </div>
+                <p class="text-[11px] text-muted-theme">
+                  {formDisabled ? "Server is deactivated. Gemini CLI will ignore it until re-enabled." : "Server is active and tools will be exposed to Gemini CLI via ACP."}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!formDisabled}
+                onclick={() => (formDisabled = !formDisabled)}
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none {formDisabled ? 'bg-surface-elevated border border-subtle' : 'bg-accent-theme'}"
+                aria-label="Toggle server status"
+              >
+                <span
+                  class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out {formDisabled ? 'translate-x-0' : 'translate-x-4'}"
+                ></span>
+              </button>
+            </div>
+
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label for="mcp-key" class="block text-primary-theme font-medium mb-1">
@@ -599,7 +672,7 @@
             <!-- Environment Variables -->
             <div>
               <div class="flex items-center justify-between mb-1.5">
-                <label class="block text-primary-theme font-medium">Environment Variables</label>
+                <span class="block text-primary-theme font-medium">Environment Variables</span>
                 <button
                   type="button"
                   onclick={addEnvRow}
