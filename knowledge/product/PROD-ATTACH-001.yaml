@@ -22,6 +22,8 @@ do:
   - "Provide a non-blocking directory walker (`list_workspace_files`) in the backend that crawls workspace folders up to depth 4 while ignoring build directories (`.git`, `node_modules`, `target`, `dist`, etc.)."
   - "Render an inline `@` mention autocomplete popover in the prompt input with keyboard navigation (`↑`/`↓`/`Enter`/`Tab`/`Esc`)."
   - "Support pre-defined Git context tokens: `@git:diff`, `@git:staged`, and `@git:status`."
+  - "Resolve Git context tokens in the Rust backend (`resolve_git_context`) into real markdown code blocks with repository diff/status before sending prompts across ACP."
+  - "Run background Git subprocesses with `CREATE_NO_WINDOW` (0x08000000) inside the active workspace directory to avoid visible console window flashes on Windows."
   - "Render attached items as removable badge chips above the prompt textarea with individual and clear-all dismiss controls."
   - "Append unmentioned badge chips automatically to the outgoing prompt as `@path` references so Gemini CLI resolves them natively over ACP."
 

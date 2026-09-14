@@ -22,6 +22,7 @@ rule:
 do:
   - "Provide a collapsible bottom drawer toggleable via shortcut (`Ctrl+` `) or UI buttons with height expansion controls."
   - "Execute commands via native shell (`powershell.exe` on Windows, `sh` on Unix) bound to the current workspace root directory."
+  - "Automatically check for, parse, and inject workspace `.env` and `.env.local` files into the shell process environment on every command execution."
   - "Capture and format stdout, stderr, exit code, and millisecond execution duration in a scrollable console."
   - "Support command history recall via keyboard (`↑`/`↓`) and console clearing (`clear`/`cls`)."
   - "Offer quick-action buttons for common developer tasks (`git status`, `git diff --stat`, directory listing)."

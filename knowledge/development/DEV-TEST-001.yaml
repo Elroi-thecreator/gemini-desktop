@@ -19,7 +19,7 @@ rule:
   "Every change to the codebase must pass type validation (`npm run check`) and Rust backend unit tests (`cargo test --lib`). To produce or verify native desktop production release executables and Windows installers, run `npm run tauri build`. Note that `npm run build` compiles only the frontend static SPA into `build/` and does not compile native binaries."
 
 do:
-  - "Run `svelte-kit sync && svelte-check --tsconfig ./tsconfig.json` to verify TypeScript and template integrity."
+  - "Run `npm run check` (`svelte-kit sync && svelte-check --tsconfig ./tsconfig.json`) and enforce 0 errors and 0 warnings before committing."
   - "Maintain in-memory SQLite unit tests in `database.rs` to verify table initialization, default seeding, cascades, and FTS5 search."
   - "Always run `npm run tauri build` to compile the native Rust backend and package production desktop artifacts (`gemini-desktop.exe`, `.msi`, and `-setup.exe`) in `src-tauri/target/release/`."
   - "Use `npm run build` solely for testing frontend static compilation into `build/`."

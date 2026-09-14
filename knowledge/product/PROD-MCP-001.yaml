@@ -23,6 +23,8 @@ do:
   - "Support both Workspace-specific (`<workspace>/.gemini/settings.json`) and Global (`~/.gemini/settings.json`) configuration scopes."
   - "Provide 1-click presets for popular MCP servers (GitHub Docker, Local Filesystem, PostgreSQL, Brave Search, Knowledge Graph Memory, Custom)."
   - "Offer dual editing modes: an accessible Guided Form and a Monospaced Raw JSON editor."
+  - "Support enabling and disabling individual MCP servers via `disabled: true` in `settings.json`, allowing temporary suspension without losing configuration or credentials."
+  - "Provide 1-click status toggle pills in the server list and accessible switch controls in the server details form."
   - "Safely read and write `settings.json` using atomic file operations, preserving pre-existing keys (such as `theme`, `telemetry`, etc.)."
   - "Intercept any MCP tool executions (`mcp_*`) with the interactive Tool Permission Approval banner."
 

@@ -24,6 +24,9 @@ do:
   - "Sanitize and render markdown safely with code syntax highlighting using `marked` and `highlight.js`."
   - "Ensure streaming token updates append smoothly without triggering layout jank or memory leaks."
   - "Use `dialogManager` (`dialog.alert`, `dialog.confirm`, `dialog.prompt`) with `DialogModal.svelte` for asynchronous, theme-adaptive user confirmations instead of browser dialogs."
+  - "Ensure all dialog modals enforce strict accessibility: backdrop has `role=\"presentation\"` and `onkeydown` Escape handler; inner card has `role=\"dialog\"`, `aria-modal=\"true\"`, `tabindex=\"-1\"`, and `onkeydown={(e) => e.stopPropagation()}`."
+  - "Replace HTML `autofocus` with programmatic focus inside `$effect` with a small `setTimeout` to eliminate `a11y_autofocus` compiler warnings."
+  - "Use `$derived.by` for reactive configuration presets that depend on component props to avoid capturing initial state."
   - "Wrap interactive icon buttons, actions, and status indicators with `Tooltip.svelte` for accessibility and keyboard/hover discoverability."
 
 dont:
