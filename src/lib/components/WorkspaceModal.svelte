@@ -12,14 +12,18 @@
     {
       group: "Auto (Recommended by Gemini CLI)",
       options: [
-        { value: "auto", label: "Auto (Gemini 3) — Auto-selects 3 Pro / 3 Flash" },
+        { value: "auto", label: "Auto — Let Gemini CLI decide the best model" },
         { value: "auto-gemini-2.5", label: "Auto (Gemini 2.5) — Auto-selects 2.5 Pro / 2.5 Flash" },
       ],
     },
     {
-      group: "Gemini 3",
+      group: "Gemini 3 / 3.5",
       options: [
-        { value: "gemini-3-pro-preview", label: "gemini-3-pro-preview (Deep reasoning, complex tasks & coding)" },
+        { value: "gemini-3.5-flash", label: "gemini-3.5-flash (Fast & powerful default in CLI 0.59)" },
+        { value: "gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite (Ultra-fast & lightweight 3.5)" },
+        { value: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview (Deep reasoning, complex coding)" },
+        { value: "gemini-3.1-flash-lite", label: "gemini-3.1-flash-lite (Ultra-fast & cost-effective)" },
+        { value: "gemini-3-pro-preview", label: "gemini-3-pro-preview (Preview reasoning & coding)" },
         { value: "gemini-3-flash-preview", label: "gemini-3-flash-preview (High speed, fast results)" },
       ],
     },
@@ -28,7 +32,7 @@
       options: [
         { value: "gemini-2.5-pro", label: "gemini-2.5-pro (Complex tasks, coding & architecture)" },
         { value: "gemini-2.5-flash", label: "gemini-2.5-flash (Balanced speed & performance)" },
-        { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite (Ultra-fast & lightweight)" },
+        { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite (Ultra-fast 2.5)" },
       ],
     },
     {
@@ -65,17 +69,22 @@
 
   let selectedDropdownValue = $state("auto");
   let customModelInput = $state("");
+  let lastSyncedWorkspaceId = $state<string | null>(null);
 
   $effect(() => {
-    const isKnown = MODEL_GROUPS.some((g) =>
-      g.options.some((o) => o.value === editingWorkspace.model)
-    );
-    if (isKnown) {
-      selectedDropdownValue = editingWorkspace.model;
-      customModelInput = "";
-    } else {
-      selectedDropdownValue = "manual_custom";
-      customModelInput = editingWorkspace.model || "";
+    // Only re-sync dropdown state when editing workspace changes (avoids clobbering manual typing)
+    if (editingWorkspace.id !== lastSyncedWorkspaceId) {
+      lastSyncedWorkspaceId = editingWorkspace.id;
+      const isKnown = MODEL_GROUPS.some((g) =>
+        g.options.some((o) => o.value === editingWorkspace.model)
+      );
+      if (isKnown) {
+        selectedDropdownValue = editingWorkspace.model;
+        customModelInput = "";
+      } else {
+        selectedDropdownValue = "manual_custom";
+        customModelInput = editingWorkspace.model || "";
+      }
     }
   });
 
@@ -83,7 +92,13 @@
     const target = e.target as HTMLSelectElement;
     selectedDropdownValue = target.value;
     if (target.value === "manual_custom") {
-      editingWorkspace.model = customModelInput.trim() || "gemini-3-pro-preview";
+      if (!customModelInput.trim()) {
+        const isKnown = MODEL_GROUPS.some((g) =>
+          g.options.some((o) => o.value === editingWorkspace.model)
+        );
+        customModelInput = isKnown ? "" : (editingWorkspace.model || "");
+      }
+      editingWorkspace.model = customModelInput.trim();
     } else {
       editingWorkspace.model = target.value;
     }
@@ -92,7 +107,7 @@
   function onCustomModelInput(e: Event) {
     const target = e.target as HTMLInputElement;
     customModelInput = target.value;
-    editingWorkspace.model = target.value;
+    editingWorkspace.model = target.value.trim();
   }
 
   function startNew() {
@@ -108,6 +123,16 @@
 
   function handleSave() {
     if (!editingWorkspace.name.trim()) return;
+    if (selectedDropdownValue === "manual_custom") {
+      const manualModel = customModelInput.trim();
+      if (!manualModel) {
+        dialogManager.alert("Please specify a custom model name or select an option from the list.", "Model Name Required");
+        return;
+      }
+      editingWorkspace.model = manualModel;
+    } else {
+      editingWorkspace.model = selectedDropdownValue;
+    }
     onSaveWorkspace({ ...editingWorkspace });
   }
 </script>

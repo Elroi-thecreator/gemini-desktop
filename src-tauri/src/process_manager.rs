@@ -227,6 +227,11 @@ impl ProcessSupervisor {
             }
         }
 
+        // Ensure GEMINI_MODEL environment variable matches CLI --model argument if provided
+        if let Some(model_arg) = extra_args.windows(2).find(|w| w[0] == "--model").map(|w| &w[1]) {
+            cmd.env("GEMINI_MODEL", model_arg);
+        }
+
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -279,6 +284,17 @@ DEBUG='true'
         assert_eq!(parsed.get("DEBUG"), Some(&"true".to_string()));
         assert_eq!(parsed.get("EMPTY_LINE"), Some(&"".to_string()));
         assert_eq!(parsed.get("# Comment line"), None);
+    }
+
+    #[test]
+    fn test_model_arg_extraction() {
+        let extra_args = vec!["--model".to_string(), "gemini-3.5-flash-lite".to_string()];
+        let model = extra_args.windows(2).find(|w| w[0] == "--model").map(|w| &w[1]);
+        assert_eq!(model, Some(&"gemini-3.5-flash-lite".to_string()));
+
+        let empty_args: Vec<String> = vec![];
+        let no_model = empty_args.windows(2).find(|w| w[0] == "--model").map(|w| &w[1]);
+        assert_eq!(no_model, None);
     }
 }
 

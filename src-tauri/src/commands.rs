@@ -255,7 +255,14 @@ pub async fn send_prompt(
             }
         };
 
-        match state.supervisor.spawn_gemini(&gemini_bin, ws_path.clone(), &[]) {
+        let mut extra_args = Vec::new();
+        let trimmed_model = model.trim();
+        if !trimmed_model.is_empty() && trimmed_model != "auto" {
+            extra_args.push("--model".to_string());
+            extra_args.push(trimmed_model.to_string());
+        }
+
+        match state.supervisor.spawn_gemini(&gemini_bin, ws_path.clone(), &extra_args) {
             Ok(mut child) => {
                 if let Some(stdin) = child.stdin.take() {
                     state.acp_session.set_stdin(Box::new(stdin)).await;
@@ -330,13 +337,10 @@ pub async fn send_prompt(
         Some(id) => id,
         None => {
             let ws_path_str = ws.as_ref().map(|w| w.path.clone()).unwrap_or_else(|| ".".to_string());
-            let mut new_session_params = serde_json::json!({
+            let new_session_params = serde_json::json!({
                 "cwd": ws_path_str,
                 "mcpServers": [],
             });
-            if !model.is_empty() {
-                new_session_params["model"] = serde_json::json!(model);
-            }
 
             let res = state.acp_session.send_request_with_response("session/new", new_session_params).await?;
 
@@ -350,9 +354,19 @@ pub async fn send_prompt(
         }
     };
 
+    // Explicitly set the active model on this session via ACP session/set_model
+    let trimmed_model = model.trim();
+    if !trimmed_model.is_empty() {
+        let set_model_params = serde_json::json!({
+            "sessionId": acp_session_id,
+            "modelId": trimmed_model
+        });
+        let _ = state.acp_session.send_request_with_response("session/set_model", set_model_params).await;
+    }
+
     let final_prompt = resolve_git_context(&prompt, ws_path.as_deref());
 
-    let mut prompt_params = serde_json::json!({
+    let prompt_params = serde_json::json!({
         "sessionId": acp_session_id,
         "prompt": [
             {
@@ -361,9 +375,6 @@ pub async fn send_prompt(
             }
         ]
     });
-    if !model.is_empty() {
-        prompt_params["model"] = serde_json::json!(model);
-    }
 
     state.acp_session.send_request("session/prompt", prompt_params).await
 }
