@@ -3,7 +3,7 @@ type: architecture_standard
 title: Windows Job Objects Process Supervision & Cleanup Standard
 domain: architecture
 status: approved
-version: 1.0.0
+version: 1.1.0
 authority:
   level: official
   confidence: high
@@ -23,6 +23,7 @@ do:
   - "Assign every spawned child process handle to this Job Object immediately upon creation (`AssignProcessToJobObject`)."
   - "Wrap Windows handles safely with `Send` and `Sync` implementations."
   - "Parse workspace-level `.env` and `.env.local` files via `parse_dotenv_file` and automatically inject variables into spawned child processes (`spawn_gemini`, `run_terminal_command`)."
+  - "Extract `--model` flags from extra CLI arguments and inject corresponding `GEMINI_MODEL` environment variable when spawning the Gemini CLI process."
   - "Provide safe session reset (`restart_gemini_session`) so updated environment variables take effect on the next prompt invocation."
 
 dont:

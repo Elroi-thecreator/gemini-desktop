@@ -21,6 +21,7 @@ rule:
 do:
   - "Run `npm run check` (`svelte-kit sync && svelte-check --tsconfig ./tsconfig.json`) and enforce 0 errors and 0 warnings before committing."
   - "Maintain in-memory SQLite unit tests in `database.rs` to verify table initialization, default seeding, cascades, and FTS5 search."
+  - "Maintain Rust backend unit tests in `process_manager.rs` and `commands.rs` covering model argument extraction, .env parsing, git context resolution, and MCP configurations."
   - "Always run `npm run tauri build` to compile the native Rust backend and package production desktop artifacts (`gemini-desktop.exe`, `.msi`, and `-setup.exe`) in `src-tauri/target/release/`."
   - "Use `npm run build` solely for testing frontend static compilation into `build/`."
 
