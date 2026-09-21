@@ -15,6 +15,7 @@ vite.config.ts.timestamp-*
 
 # Distribution & Compiled Binaries
 /dist/
+winget-manifest/
 *.exe
 *.msi
 *.dll
