@@ -36,6 +36,9 @@
     RotateCcw,
     Edit3,
     ArrowDown,
+    FolderTree,
+    PanelLeftClose,
+    PanelLeftOpen,
   } from "lucide-svelte";
   import { tick } from "svelte";
 
@@ -47,7 +50,10 @@
     isStreaming = false,
     streamingText = "",
     toolPermission = null,
+    showSidebar = true,
+    onToggleSidebar,
     showTerminalDrawer = $bindable(false),
+    showSolutionExplorer = $bindable(true),
     onSendPrompt,
     onCancelPrompt,
     onToolResponse,
@@ -61,7 +67,10 @@
     isStreaming: boolean;
     streamingText: string;
     toolPermission: ToolPermissionPayload | null;
+    showSidebar?: boolean;
+    onToggleSidebar?: () => void;
     showTerminalDrawer?: boolean;
+    showSolutionExplorer?: boolean;
     onSendPrompt: (prompt: string) => void;
     onCancelPrompt: () => void;
     onToolResponse: (requestId: number, optionId?: string, allowed?: boolean) => void;
@@ -73,6 +82,44 @@
   let chatViewport: HTMLDivElement | null = $state(null);
   let textareaElem: HTMLTextAreaElement | null = $state(null);
   let showExportMenu = $state(false);
+
+  export function insertFileMention(relPath: string) {
+    const mention = `@${relPath} `;
+    if (inputPrompt && !inputPrompt.endsWith(" ")) {
+      inputPrompt += " " + mention;
+    } else {
+      inputPrompt += mention;
+    }
+    tick().then(() => {
+      if (textareaElem) {
+        textareaElem.focus();
+        const pos = inputPrompt.length;
+        textareaElem.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  export function attachItem(path: string, isDir: boolean, name?: string) {
+    const itemName = name || path.split("/").pop() || path;
+    const cleanPath = isDir && !path.endsWith("/") ? `${path}/` : path;
+    addAttachment({
+      id: `${isDir ? "dir" : "file"}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: itemName,
+      path: cleanPath,
+      kind: isDir ? "directory" : "file",
+    });
+    tick().then(() => {
+      if (textareaElem) {
+        textareaElem.focus();
+      }
+    });
+  }
+
+  export function attachMultiple(items: { path: string; isDir: boolean; name?: string }[]) {
+    for (const item of items) {
+      attachItem(item.path, item.isDir, item.name);
+    }
+  }
   let isUserScrolledUp = $state(false);
   let copiedMessageId = $state<string | null>(null);
 
@@ -388,6 +435,26 @@
   <!-- Top Bar -->
   <header class="h-14 px-6 border-b border-subtle flex items-center justify-between bg-surface/70 backdrop-blur-xs">
     <div class="flex items-center gap-3 truncate">
+      {#if onToggleSidebar}
+        <Tooltip
+          text={showSidebar ? "Collapse Sidebar" : "Expand Sidebar"}
+          shortcut="Ctrl+B"
+          position="bottom"
+        >
+          <button
+            type="button"
+            onclick={onToggleSidebar}
+            class="p-1.5 rounded-lg text-secondary-theme hover:text-primary-theme hover:bg-surface transition-colors cursor-pointer border border-theme-default flex items-center justify-center shrink-0 {showSidebar ? '' : 'bg-surface-elevated text-accent-theme'}"
+            aria-label="Toggle navigation sidebar"
+          >
+            {#if showSidebar}
+              <PanelLeftClose size={15} />
+            {:else}
+              <PanelLeftOpen size={15} class="text-accent-theme" />
+            {/if}
+          </button>
+        </Tooltip>
+      {/if}
       <h2 class="font-medium text-sm text-primary-theme truncate">
         {session?.title || "Select or start a new session"}
       </h2>
@@ -430,6 +497,24 @@
         >
           <Terminal size={14} class={showTerminalDrawer ? 'text-accent-theme' : ''} />
           <span>Terminal</span>
+        </button>
+      </Tooltip>
+
+      <!-- Workspace Explorer Toggle Button -->
+      <Tooltip
+        text="Workspace Explorer"
+        subtext="Toggle workspace file and folder tree"
+        shortcut="Ctrl+Alt+L"
+        position="bottom"
+      >
+        <button
+          type="button"
+          onclick={() => (showSolutionExplorer = !showSolutionExplorer)}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg transition-colors border border-theme-default cursor-pointer {showSolutionExplorer ? 'bg-accent-subtle text-accent-theme border-accent-subtle' : 'text-secondary-theme hover:text-primary-theme bg-surface hover:bg-surface-hover'}"
+          aria-label="Toggle Workspace Explorer"
+        >
+          <FolderTree size={14} class={showSolutionExplorer ? 'text-accent-theme' : ''} />
+          <span>Explorer</span>
         </button>
       </Tooltip>
 

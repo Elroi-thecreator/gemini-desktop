@@ -15,6 +15,7 @@
     Palette,
     Server,
     Terminal,
+    PanelLeftClose,
   } from "lucide-svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
 
@@ -34,6 +35,7 @@
     onOpenThemeModal,
     onOpenMcpModal,
     onToggleTerminal,
+    onToggle,
     envStatus = null,
   }: {
     workspaces: Workspace[];
@@ -51,24 +53,25 @@
     onOpenThemeModal: () => void;
     onOpenMcpModal: () => void;
     onToggleTerminal?: () => void;
+    onToggle?: () => void;
     envStatus: any;
   } = $props();
 
   let showWorkspaceMenu = $state(false);
 </script>
 
-<aside class="w-72 h-screen flex flex-col bg-sidebar border-r border-subtle select-none">
+<aside class="w-72 h-screen flex flex-col bg-sidebar border-r border-subtle select-none shrink-0">
   <!-- Top App Brand -->
   <div class="p-3.5 border-b border-subtle flex items-center justify-between">
-    <div class="flex items-center gap-2.5">
+    <div class="flex items-center gap-2.5 truncate">
       <div
-        class="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md shadow-black/20"
+        class="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md shadow-black/20 shrink-0"
         style="background: var(--accent-gradient);"
       >
         <Sparkles size={18} />
       </div>
-      <div>
-        <h1 class="text-sm font-semibold tracking-tight text-primary-theme flex items-center gap-1.5">
+      <div class="truncate">
+        <h1 class="text-sm font-semibold tracking-tight text-primary-theme flex items-center gap-1.5 truncate">
           Gemini Desktop
         </h1>
         <Tooltip
@@ -85,6 +88,20 @@
         </Tooltip>
       </div>
     </div>
+
+    <!-- Collapse Sidebar Button -->
+    {#if onToggle}
+      <Tooltip text="Collapse Sidebar" shortcut="Ctrl+B" position="bottom">
+        <button
+          type="button"
+          onclick={onToggle}
+          class="p-1 rounded-lg text-muted-theme hover:text-primary-theme hover:bg-surface transition-colors cursor-pointer shrink-0"
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeftClose size={16} />
+        </button>
+      </Tooltip>
+    {/if}
   </div>
 
   <!-- Workspace Selector -->

@@ -456,7 +456,7 @@ pub fn list_workspace_files(state: State<AppState>, workspace_id: String) -> Res
     }
 
     let mut entries = Vec::new();
-    walk_workspace_dir(&root, &root, 0, 4, &mut entries);
+    walk_workspace_dir(&root, &root, 0, 7, &mut entries);
     Ok(entries)
 }
 
@@ -467,7 +467,7 @@ fn walk_workspace_dir(
     max_depth: usize,
     out: &mut Vec<WorkspaceFileEntry>,
 ) {
-    if depth > max_depth || out.len() >= 600 {
+    if depth > max_depth || out.len() >= 3000 {
         return;
     }
 
@@ -517,14 +517,14 @@ fn walk_workspace_dir(
             subdirs.push(path);
         }
 
-        if out.len() >= 600 {
+        if out.len() >= 3000 {
             break;
         }
     }
 
     for subdir in subdirs {
         walk_workspace_dir(root, &subdir, depth + 1, max_depth, out);
-        if out.len() >= 600 {
+        if out.len() >= 3000 {
             break;
         }
     }

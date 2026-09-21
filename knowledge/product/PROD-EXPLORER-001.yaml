@@ -1,0 +1,42 @@
+id: PROD-EXPLORER-001
+type: product_standard
+title: Workspace Explorer Tree Navigation, Context Attachment & File Filtering
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: frontend_and_product
+
+applies_to:
+  - frontend
+  - components
+  - workspace
+
+rule:
+  "The Workspace Explorer provides an interactive, Visual Studio 2022-inspired hierarchical file tree docked on the right side of the workspace canvas. Users can browse directories, filter out noise, and attach files or directories to the chat prompt."
+
+do:
+  - "Dock Workspace Explorer to the right margin with collapsible auto-hide tab and horizontal resizing handle (240px–600px)."
+  - "Default to collapsing all folders on initial load and workspace switch for optimal DOM performance, expanding on-demand or during active search."
+  - "Filter out dotfiles and dotfolders (names starting with `.`) by default, with an `Eye`/`EyeOff` toggle button in the toolbar to reveal them on demand."
+  - "Automatically reveal matching hidden items if the user explicitly types a search query starting with `.` (e.g. `.env` or `.git`)."
+  - "Provide multi-select mode (`isSelectMode`) with checkboxes to batch-select multiple files or folders and attach them to chat context with one click."
+  - "Provide instant single-click inline attachment (`Paperclip` icon) and `@mention` insertion (`@` icon) on hover for any file or directory row."
+  - "Render distinct Visual Studio 2022 color badges and icons based on file type and extension."
+  - "Support context menu actions: open in system default app, reveal in Windows Explorer, and copy relative path."
+  - "Provide keyboard shortcuts: `Ctrl+Alt+L` to toggle Workspace Explorer and `Ctrl+;` to focus the explorer search filter."
+
+dont:
+  - "Do not display hidden configuration or dotfiles by default unless toggled or specifically searched."
+  - "Do not auto-expand entire deep folder hierarchies on load, which degrades performance on large workspaces."
+
+reason:
+  "Visual Studio-style tree exploration gives developers immediate spatial awareness of project structure and lets them fluidly attach multiple files and folders into AI prompt context without modal dialogs."
+
+related_items:
+  - PROD-WS-001
+  - PROD-ATTACH-001
+  - DEV-SVELTE-001

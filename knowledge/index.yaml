@@ -1,8 +1,8 @@
 # Gemini Desktop Master Knowledge Graph & Index
 system_name: GeminiDesktop
 repository_root: "c:/AIFiles/gemini-desktop"
-knowledge_units_count: 17
-last_updated: "2026-09-17"
+knowledge_units_count: 18
+last_updated: "2026-09-21"
 
 knowledge_units:
   architecture:
@@ -46,6 +46,9 @@ knowledge_units:
     - id: PROD-ATTACH-001
       file: "knowledge/product/PROD-ATTACH-001.yaml"
       title: "Context & File Attachments with Inline Mention Autocomplete"
+    - id: PROD-EXPLORER-001
+      file: "knowledge/product/PROD-EXPLORER-001.yaml"
+      title: "Workspace Explorer Tree Navigation, Context Attachment & File Filtering"
     - id: PROD-TERM-001
       file: "knowledge/product/PROD-TERM-001.yaml"
       title: "Integrated Terminal Drawer, PowerShell Workspace Execution & Session Sync"

@@ -14,6 +14,7 @@
   } from "$lib/types";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
+  import SolutionExplorer from "$lib/components/SolutionExplorer.svelte";
   import SearchModal from "$lib/components/SearchModal.svelte";
   import WorkspaceModal from "$lib/components/WorkspaceModal.svelte";
   import TemplatesModal from "$lib/components/TemplatesModal.svelte";
@@ -36,13 +37,18 @@
   let toolPermission: ToolPermissionPayload | null = $state(null);
   let envStatus: GeminiEnvStatus | null = $state(null);
 
-  // Modals
+  // Modals & Panels
   let showSearchModal = $state(false);
   let showWorkspaceModal = $state(false);
   let showTemplatesModal = $state(false);
   let showThemeModal = $state(false);
   let showMcpModal = $state(false);
   let showTerminalDrawer = $state(false);
+  let showSolutionExplorer = $state(true);
+  let showSidebar = $state(true);
+
+  let chatViewRef = $state<ReturnType<typeof ChatView> | null>(null);
+  let solutionExplorerRef = $state<ReturnType<typeof SolutionExplorer> | null>(null);
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
@@ -133,6 +139,18 @@
     } else if ((e.ctrlKey || e.metaKey) && (e.key === "`" || e.key === "~")) {
       e.preventDefault();
       showTerminalDrawer = !showTerminalDrawer;
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) {
+      e.preventDefault();
+      showSidebar = !showSidebar;
+    } else if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "l" || e.key === "L")) {
+      e.preventDefault();
+      showSolutionExplorer = !showSolutionExplorer;
+    } else if ((e.ctrlKey || e.metaKey) && e.key === ";") {
+      e.preventDefault();
+      if (!showSolutionExplorer) showSolutionExplorer = true;
+      setTimeout(() => {
+        solutionExplorerRef?.focusSearch();
+      }, 50);
     }
   }
 
@@ -142,6 +160,12 @@
     } catch (e) {
       console.warn("Failed to list workspace files:", e);
       workspaceFiles = [];
+    }
+  }
+
+  async function refreshWorkspaceFiles() {
+    if (activeWorkspace) {
+      await loadWorkspaceFiles(activeWorkspace.id);
     }
   }
 
@@ -333,27 +357,31 @@
 
 <div class="flex h-screen w-screen bg-app overflow-hidden select-none">
   <!-- Left Navigation Sidebar -->
-  <Sidebar
-    {workspaces}
-    {activeWorkspace}
-    {sessions}
-    {activeSession}
-    {envStatus}
-    onSelectWorkspace={selectWorkspace}
-    onSelectSession={selectSession}
-    onNewSession={handleNewSession}
-    onRenameSession={handleRenameSession}
-    onDeleteSession={handleDeleteSession}
-    onOpenSearch={() => (showSearchModal = true)}
-    onOpenTemplates={() => (showTemplatesModal = true)}
-    onOpenWorkspaceModal={() => (showWorkspaceModal = true)}
-    onOpenThemeModal={() => (showThemeModal = true)}
-    onOpenMcpModal={() => (showMcpModal = true)}
-    onToggleTerminal={() => (showTerminalDrawer = !showTerminalDrawer)}
-  />
+  {#if showSidebar}
+    <Sidebar
+      {workspaces}
+      {activeWorkspace}
+      {sessions}
+      {activeSession}
+      {envStatus}
+      onToggle={() => (showSidebar = false)}
+      onSelectWorkspace={selectWorkspace}
+      onSelectSession={selectSession}
+      onNewSession={handleNewSession}
+      onRenameSession={handleRenameSession}
+      onDeleteSession={handleDeleteSession}
+      onOpenSearch={() => (showSearchModal = true)}
+      onOpenTemplates={() => (showTemplatesModal = true)}
+      onOpenWorkspaceModal={() => (showWorkspaceModal = true)}
+      onOpenThemeModal={() => (showThemeModal = true)}
+      onOpenMcpModal={() => (showMcpModal = true)}
+      onToggleTerminal={() => (showTerminalDrawer = !showTerminalDrawer)}
+    />
+  {/if}
 
   <!-- Main Chat Surface -->
   <ChatView
+    bind:this={chatViewRef}
     workspace={activeWorkspace}
     session={activeSession}
     {workspaceFiles}
@@ -361,12 +389,34 @@
     {isStreaming}
     {streamingText}
     {toolPermission}
+    {showSidebar}
+    onToggleSidebar={() => (showSidebar = !showSidebar)}
     bind:showTerminalDrawer
+    bind:showSolutionExplorer
     onSendPrompt={handleSendPrompt}
     onCancelPrompt={handleCancelPrompt}
     onToolResponse={handleToolResponse}
     onExport={handleExport}
     onOpenMcpModal={() => (showMcpModal = true)}
+  />
+
+  <!-- Right Visual Studio 2022 Workspace Explorer -->
+  <SolutionExplorer
+    bind:this={solutionExplorerRef}
+    workspace={activeWorkspace}
+    {workspaceFiles}
+    isOpen={showSolutionExplorer}
+    onToggle={() => (showSolutionExplorer = !showSolutionExplorer)}
+    onRefresh={refreshWorkspaceFiles}
+    onInsertMention={(relPath) => {
+      chatViewRef?.insertFileMention(relPath);
+    }}
+    onAttachItem={(relPath, isDir, name) => {
+      chatViewRef?.attachItem(relPath, isDir, name);
+    }}
+    onAttachMultiple={(items) => {
+      chatViewRef?.attachMultiple(items);
+    }}
   />
 
   <!-- Modals -->

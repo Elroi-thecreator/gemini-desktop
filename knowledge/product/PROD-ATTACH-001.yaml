@@ -16,10 +16,14 @@ applies_to:
   - commands
 
 rule:
-  "Users must be able to attach workspace files, folders, Git state, and custom references using inline `@` mentions or an interactive attachment picker. Attached items must be converted to standard `@path` references for ACP prompt execution."
+  "Users must be able to attach workspace files, folders, Git state, and custom references using inline `@` mentions, the Workspace Explorer, or an interactive hierarchical attachment picker. Attached items must be converted to standard `@path` references for ACP prompt execution."
 
 do:
-  - "Provide a non-blocking directory walker (`list_workspace_files`) in the backend that crawls workspace folders up to depth 4 while ignoring build directories (`.git`, `node_modules`, `target`, `dist`, etc.)."
+  - "Provide a non-blocking directory walker (`list_workspace_files`) in the backend that crawls workspace folders up to depth 7 while ignoring build directories (`.git`, `node_modules`, `target`, `dist`, etc.)."
+  - "Provide interactive hierarchical subfolder navigation in `FilePickerModal` with clickable breadcrumbs (`Workspace Root > dir > subdir`), parent directory navigation (`..` and `Backspace`), and direct subfolder browsing."
+  - "In Directory Mode, enable both drilling deeper into subfolders and attaching any folder directly with a dedicated inline button, or attaching the active directory with an 'Attach This Folder' action."
+  - "Strictly filter out hidden files and folders (`.*`) and build/cache folders (`node_modules`, `target`, `dist`, `build`, `.svelte-kit`, etc.) by default in the attachment picker, providing an `Eye`/`EyeOff` toggle for power users."
+  - "Switch to instant workspace-wide search across all non-hidden files whenever text is typed in the search bar, with instant restoration of folder browsing when cleared."
   - "Render an inline `@` mention autocomplete popover in the prompt input with keyboard navigation (`↑`/`↓`/`Enter`/`Tab`/`Esc`)."
   - "Support pre-defined Git context tokens: `@git:diff`, `@git:staged`, and `@git:status`."
   - "Resolve Git context tokens in the Rust backend (`resolve_git_context`) into real markdown code blocks with repository diff/status before sending prompts across ACP."
@@ -29,7 +33,8 @@ do:
 
 dont:
   - "Do not block the UI thread when crawling large directory structures."
-  - "Do not crawl or expose sensitive build or version control directories."
+  - "Do not display hidden configuration (`.*`) or build directories (`node_modules`, `target`, `dist`) by default in the file/folder attachment picker."
+  - "Do not present a flat unnavigable list of files without folder hierarchy context."
 
 reason:
   "Direct context attachment matches Gemini CLI's official file management workflow, enabling developers to feed relevant code and diffs effortlessly."
