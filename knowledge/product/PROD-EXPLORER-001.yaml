@@ -3,7 +3,7 @@ type: product_standard
 title: Workspace Explorer Tree Navigation, Context Attachment & File Filtering
 domain: product
 status: approved
-version: 1.1.0
+version: 1.2.0
 authority:
   level: official
   confidence: high
@@ -16,28 +16,33 @@ applies_to:
   - workspace
 
 rule:
-  "The Workspace Explorer provides an interactive, Visual Studio 2022-inspired hierarchical file tree docked on the right side of the workspace canvas. Files and folders are loaded dynamically on demand without artificial file limits, and users can attach files or directories directly to the chat prompt."
+  "The Workspace Explorer provides an interactive, Visual Studio 2022-inspired hierarchical file tree docked on the right side of the workspace canvas. Files and folders are loaded dynamically on demand without artificial file limits, and users can search files explicitly and attach items directly to the chat prompt."
 
 do:
   - "Dock Workspace Explorer to the right margin with collapsible auto-hide tab and horizontal resizing handle (240px–600px)."
   - "Load only root-level items initially on workspace mount/switch, keeping all directories collapsed by default for zero latency and instant rendering."
   - "Dynamically lazy-load subfolder contents on-demand via `read_workspace_dir` when a user clicks to expand a folder."
+  - "Provide an explicit Enter-driven search (`search_workspace_files`) that executes off-thread in native Rust without triggering on every keystroke."
+  - "Match search query strictly against file names (not directory paths) to prevent noisy false-positive matches from parent folder names."
+  - "Display matching files only (filtering out folder noise) with subtle relative directory breadcrumbs (e.g. `in src/lib/components`) and capped at 100 matches for sub-10ms rendering."
+  - "Instantly restore the lazy-loaded tree view when search is cleared via Escape or the reset button."
   - "Filter out dotfiles and dotfolders (names starting with `.`) by default, with an `Eye`/`EyeOff` toggle button in the toolbar to reveal them on demand."
   - "Provide a 'Collapse All Folders' action button (`ChevronsDownUp`) in the toolbar to quickly collapse the tree hierarchy."
   - "Provide multi-select mode (`isSelectMode`) with checkboxes to batch-select multiple files or folders and attach them to chat context with one click."
   - "Provide instant single-click inline attachment (`Paperclip` icon) and `@mention` insertion (`@` icon) on hover for any file or directory row."
   - "Render distinct Visual Studio 2022 color badges and icons based on file type and extension."
   - "Support context menu actions: open in system default app, reveal in Windows Explorer, and copy relative path."
-  - "Provide keyboard shortcut: `Ctrl+Alt+L` to toggle Workspace Explorer."
+  - "Provide keyboard shortcuts: `Ctrl+Alt+L` to toggle Workspace Explorer and `Ctrl+;` to focus the file search bar."
 
 dont:
   - "Do not preload entire multi-thousand file trees upfront or cap browsing at arbitrary limits like 3,000 files."
   - "Do not provide an 'Expand All' option that can accidentally mount tens of thousands of DOM nodes and freeze the webview."
-  - "Do not implement tree-wide recursive auto-expanding search inside the explorer panel that degrades DOM performance on massive repositories."
+  - "Do not execute search queries on every keystroke (`oninput`), which locks the webview JavaScript thread and re-evaluates deep DOM trees."
+  - "Do not display empty intermediate folders when displaying search results; display only matching files with their relative directory context."
   - "Do not display hidden configuration or dotfiles by default unless toggled via the toolbar."
 
 reason:
-  "Dynamic on-demand directory fetching (`std::fs::read_dir`) ensures instantaneous tree interaction and supports projects with tens of thousands of files without UI freezes, DOM bloat, or arbitrary file caps."
+  "Off-thread native Rust filesystem searches (`search_workspace_files`) combined with explicit Enter-submission and capped result sets guarantee sub-10ms search latency without blocking the webview thread or thrashing DOM nodes."
 
 related_items:
   - PROD-WS-001

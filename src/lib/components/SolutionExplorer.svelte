@@ -25,6 +25,9 @@
     Paperclip,
     CheckSquare,
     Square,
+    Search,
+    X,
+    CornerDownLeft,
   } from "lucide-svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
   import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -135,6 +138,56 @@
     return count;
   });
 
+  // Search State (Off-thread Native Filesystem Search, Explicit Enter Submission, Files Only)
+  let searchQuery = $state("");
+  let activeSearch = $state("");
+  let isSearching = $state(false);
+  let searchResults = $state<TreeNode[]>([]);
+  let searchInputEl: HTMLInputElement | null = $state(null);
+
+  let visibleSearchResults = $derived.by(() => {
+    return searchResults.filter((n) => isNodeVisible(n, showHiddenFiles));
+  });
+
+  async function handleSearchSubmit() {
+    const q = searchQuery.trim();
+    if (!q) {
+      clearSearch();
+      return;
+    }
+    if (!workspace) return;
+    isSearching = true;
+    activeSearch = q;
+    try {
+      const entries = await invoke<WorkspaceFileEntry[]>("search_workspace_files", {
+        workspaceId: workspace.id,
+        query: q,
+        maxResults: 100,
+      });
+      searchResults = entries.map((entry) => ({
+        name: entry.name,
+        path: entry.relative_path,
+        isDir: false,
+        extension: entry.extension,
+        children: [],
+        isLoaded: true,
+        isLoading: false,
+      }));
+    } catch (err) {
+      console.error("Search failed:", err);
+      searchResults = [];
+    } finally {
+      isSearching = false;
+    }
+  }
+
+  function clearSearch() {
+    searchQuery = "";
+    activeSearch = "";
+    searchResults = [];
+    searchInputEl?.focus();
+  }
+
   let currentWorkspaceId = $state<string | null>(null);
 
   // Reset expansion and reload root nodes on workspace change or initial load
@@ -146,6 +199,9 @@
       checkedItems = new Map();
       selectedNode = null;
       rootNodes = [];
+      searchQuery = "";
+      activeSearch = "";
+      searchResults = [];
       if (wsId) {
         loadRootNodes(wsId);
       }
@@ -447,6 +503,13 @@
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
   }
+
+  export function focusSearch() {
+    if (searchInputEl) {
+      searchInputEl.focus();
+      searchInputEl.select();
+    }
+  }
 </script>
 
 {#if !isOpen}
@@ -577,6 +640,55 @@
       </div>
     </header>
 
+    <!-- Search / Filter Bar (Explicit Enter Submission, Files Only) -->
+    <div class="px-2 py-1.5 bg-sidebar border-b border-subtle">
+      <div class="relative flex items-center">
+        <Search size={12} class="absolute left-2 text-muted-theme pointer-events-none" />
+        <input
+          bind:this={searchInputEl}
+          type="text"
+          bind:value={searchQuery}
+          onkeydown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleSearchSubmit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              clearSearch();
+            }
+          }}
+          placeholder="Filter files (Press Enter)..."
+          class="w-full pl-7 pr-12 py-1 text-xs bg-surface text-primary-theme placeholder:text-muted-theme rounded border border-theme-default focus:border-accent-theme focus:outline-none transition-colors"
+        />
+        <div class="absolute right-1.5 flex items-center gap-0.5">
+          {#if searchQuery}
+            <button
+              type="button"
+              onclick={clearSearch}
+              class="p-0.5 text-muted-theme hover:text-primary-theme cursor-pointer"
+              aria-label="Clear search"
+            >
+              <X size={12} />
+            </button>
+          {/if}
+          <button
+            type="button"
+            onclick={handleSearchSubmit}
+            disabled={!searchQuery.trim() || isSearching}
+            class="p-0.5 text-muted-theme hover:text-accent-theme disabled:opacity-40 cursor-pointer"
+            title="Search files (Enter)"
+            aria-label="Submit search"
+          >
+            {#if isSearching}
+              <RotateCw size={12} class="animate-spin text-accent-theme" />
+            {:else}
+              <CornerDownLeft size={12} />
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Multi-Select Action Banner (When Items are Checked) -->
     {#if isSelectMode || checkedItems.size > 0}
       <div class="px-2.5 py-1.5 bg-surface-elevated border-b border-subtle flex items-center justify-between gap-2 text-xs">
@@ -610,64 +722,115 @@
 
     <!-- Tree Structure Container -->
     <div class="flex-1 overflow-y-auto overflow-x-hidden py-1 text-xs font-sans">
-      <!-- Workspace Root Node -->
-      <div
-        class="flex items-center justify-between px-2 py-1 text-xs font-medium text-secondary-theme bg-surface-elevated/40 border-b border-subtle/50 select-none group"
-      >
-        <div class="flex items-center gap-1.5 truncate">
-          <div class="w-3.5 h-3.5 flex items-center justify-center text-[#a855f7] shrink-0">
-            <Layers size={13} />
+      {#if activeSearch}
+        <!-- Filtered Search Results Header -->
+        <div
+          class="flex items-center justify-between px-2 py-1 text-xs font-medium text-secondary-theme bg-surface-elevated/40 border-b border-subtle/50 select-none group"
+        >
+          <div class="flex items-center gap-1.5 truncate">
+            <Search size={12} class="text-accent-theme shrink-0" />
+            <span class="truncate">
+              Files matching "{activeSearch}"
+            </span>
           </div>
-          <span class="truncate" title={workspace?.path || "No workspace root"}>
-            Workspace '{workspace?.name || "Workspace"}'
-          </span>
-        </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <span class="text-[10px] text-muted-theme font-mono">
-            {visibleFilesCount} files, {visibleDirsCount} folders{#if !showHiddenFiles && hiddenItemsCount > 0}
-              <span class="opacity-75"> ({hiddenItemsCount} hidden)</span>
-            {/if}
-          </span>
-        </div>
-      </div>
-
-      {#if isLoadingRoot}
-        <div class="p-8 text-center text-muted-theme text-xs flex flex-col items-center justify-center gap-2">
-          <RotateCw size={18} class="animate-spin text-accent-theme" />
-          <span>Loading workspace files...</span>
-        </div>
-      {:else if visibleRootItems.length === 0}
-        <div class="p-4 text-center text-muted-theme text-xs flex flex-col items-center gap-2">
-          <FolderTree size={24} class="opacity-40 text-muted-theme" />
-          {#if hiddenItemsCount > 0 && !showHiddenFiles}
-            <span>Only hidden files exist ({hiddenItemsCount} hidden)</span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] text-muted-theme font-mono">
+              {visibleSearchResults.length} match{visibleSearchResults.length === 1 ? "" : "es"}
+            </span>
             <button
               type="button"
-              onclick={() => (showHiddenFiles = true)}
-              class="text-accent-theme hover:underline cursor-pointer"
+              onclick={clearSearch}
+              class="text-[10px] text-accent-theme hover:underline cursor-pointer"
             >
-              Show hidden files
+              Clear
             </button>
-          {:else}
-            <span>No files found in this workspace</span>
-            {#if onRefresh}
+          </div>
+        </div>
+
+        {#if isSearching}
+          <div class="p-8 text-center text-muted-theme text-xs flex flex-col items-center justify-center gap-2">
+            <RotateCw size={18} class="animate-spin text-accent-theme" />
+            <span>Searching files...</span>
+          </div>
+        {:else if visibleSearchResults.length === 0}
+          <div class="p-6 text-center text-muted-theme text-xs flex flex-col items-center gap-2">
+            <Search size={22} class="opacity-40 text-muted-theme" />
+            <span>No files match "{activeSearch}"</span>
+            <button
+              type="button"
+              onclick={clearSearch}
+              class="text-accent-theme hover:underline cursor-pointer text-xs"
+            >
+              Clear search filter
+            </button>
+          </div>
+        {:else}
+          <div class="py-0.5">
+            {#each visibleSearchResults as node (node.path)}
+              {@render searchResultRow(node)}
+            {/each}
+          </div>
+        {/if}
+      {:else}
+        <!-- Workspace Root Node -->
+        <div
+          class="flex items-center justify-between px-2 py-1 text-xs font-medium text-secondary-theme bg-surface-elevated/40 border-b border-subtle/50 select-none group"
+        >
+          <div class="flex items-center gap-1.5 truncate">
+            <div class="w-3.5 h-3.5 flex items-center justify-center text-[#a855f7] shrink-0">
+              <Layers size={13} />
+            </div>
+            <span class="truncate" title={workspace?.path || "No workspace root"}>
+              Workspace '{workspace?.name || "Workspace"}'
+            </span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <span class="text-[10px] text-muted-theme font-mono">
+              {visibleFilesCount} files, {visibleDirsCount} folders{#if !showHiddenFiles && hiddenItemsCount > 0}
+                <span class="opacity-75"> ({hiddenItemsCount} hidden)</span>
+              {/if}
+            </span>
+          </div>
+        </div>
+
+        {#if isLoadingRoot}
+          <div class="p-8 text-center text-muted-theme text-xs flex flex-col items-center justify-center gap-2">
+            <RotateCw size={18} class="animate-spin text-accent-theme" />
+            <span>Loading workspace files...</span>
+          </div>
+        {:else if visibleRootItems.length === 0}
+          <div class="p-4 text-center text-muted-theme text-xs flex flex-col items-center gap-2">
+            <FolderTree size={24} class="opacity-40 text-muted-theme" />
+            {#if hiddenItemsCount > 0 && !showHiddenFiles}
+              <span>Only hidden files exist ({hiddenItemsCount} hidden)</span>
               <button
                 type="button"
-                onclick={handleRefreshClick}
+                onclick={() => (showHiddenFiles = true)}
                 class="text-accent-theme hover:underline cursor-pointer"
               >
-                Scan workspace files
+                Show hidden files
               </button>
+            {:else}
+              <span>No files found in this workspace</span>
+              {#if onRefresh}
+                <button
+                  type="button"
+                  onclick={handleRefreshClick}
+                  class="text-accent-theme hover:underline cursor-pointer"
+                >
+                  Scan workspace files
+                </button>
+              {/if}
             {/if}
-          {/if}
-        </div>
-      {:else}
-        <!-- Tree Nodes with Recursive Snippet -->
-        <div class="py-0.5">
-          {#each visibleRootItems as node (node.path)}
-            {@render treeRow(node, 0)}
-          {/each}
-        </div>
+          </div>
+        {:else}
+          <!-- Tree Nodes with Recursive Snippet -->
+          <div class="py-0.5">
+            {#each visibleRootItems as node (node.path)}
+              {@render treeRow(node, 0)}
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
 
@@ -698,7 +861,11 @@
           </Tooltip>
         {/if}
         <span class="font-mono text-[10px] text-muted-theme">
-          {visibleFilesCount} files
+          {#if activeSearch}
+            {visibleSearchResults.length} match{visibleSearchResults.length === 1 ? "" : "es"}
+          {:else}
+            {visibleFilesCount} files
+          {/if}
         </span>
       </div>
     </footer>
@@ -1020,4 +1187,149 @@
       {/if}
     </div>
   {/if}
+{/snippet}
+
+<!-- Search Result Row Snippet (Files Only with Path Context) -->
+{#snippet searchResultRow(node: TreeNode)}
+  {@const isSelected = selectedNode?.path === node.path}
+  {@const isChecked = checkedItems.has(node.path)}
+  {@const isAttached = attachedPath === node.path}
+  {@const meta = getFileIconMeta(node)}
+  {@const isHiddenItem = node.name.startsWith(".")}
+  {@const dirPath = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""}
+
+  <div
+    role="treeitem"
+    aria-selected={isSelected}
+    tabindex="0"
+    onclick={() => {
+      selectedNode = node;
+      if (isSelectMode) {
+        toggleCheckItem(node);
+      }
+    }}
+    ondblclick={(e) => {
+      handleOpenFile(node.path, e);
+    }}
+    oncontextmenu={(e) => handleContextMenu(node, e)}
+    onkeydown={(e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectedNode = node;
+        if (isSelectMode) {
+          toggleCheckItem(node);
+        }
+      }
+    }}
+    class="group relative flex items-center h-6 px-2 cursor-pointer transition-colors select-none {isSelected ? 'bg-accent-subtle text-primary-theme font-medium border-l-2 border-accent-theme' : 'text-secondary-theme hover:bg-surface-hover/80 hover:text-primary-theme'} {isHiddenItem ? 'opacity-70' : ''}"
+  >
+    <!-- Optional Selection Checkbox in Select Mode -->
+    {#if isSelectMode}
+      <button
+        type="button"
+        onclick={(e) => toggleCheckItem(node, e)}
+        class="w-3.5 h-3.5 mr-1.5 flex items-center justify-center text-muted-theme hover:text-accent-theme cursor-pointer"
+        aria-label="Check item to attach"
+      >
+        {#if isChecked}
+          <CheckSquare size={13} class="text-accent-theme" />
+        {:else}
+          <Square size={13} class="opacity-60" />
+        {/if}
+      </button>
+    {/if}
+
+    <!-- File Icon -->
+    <div class="w-4 h-4 mr-1.5 flex items-center justify-center shrink-0">
+      {#if meta.type === "code"}
+        <FileCode size={14} style="color: {meta.color};" />
+      {:else if meta.type === "database"}
+        <Database size={14} style="color: {meta.color};" />
+      {:else if meta.type === "terminal"}
+        <Terminal size={14} style="color: {meta.color};" />
+      {:else if meta.type === "image"}
+        <Image size={14} style="color: {meta.color};" />
+      {:else}
+        <FileText size={14} style="color: {meta.color};" />
+      {/if}
+    </div>
+
+    <!-- File Name -->
+    <span class="truncate text-xs leading-none mr-1 font-normal {isHiddenItem ? 'italic' : ''}" title={node.path}>
+      {node.name}
+    </span>
+
+    <!-- Relative Directory Breadcrumb / Path Context -->
+    {#if dirPath}
+      <span class="text-[10px] text-muted-theme/60 font-mono truncate mr-2" title={dirPath}>
+        in {dirPath}
+      </span>
+    {/if}
+
+    <!-- Action Buttons on Row Hover -->
+    <div class="hidden group-hover:flex items-center gap-0.5 ml-auto shrink-0 bg-surface/90 rounded px-0.5 border border-subtle/50">
+      <Tooltip text={isAttached ? "Attached to Chat!" : "Attach File to Chat"} position="left">
+        <button
+          type="button"
+          onclick={(e) => handleAttachNode(node, e)}
+          class="p-0.5 rounded hover:bg-surface-elevated transition-colors cursor-pointer {isAttached ? 'text-emerald-400 font-bold' : 'text-accent-theme hover:text-accent-hover'}"
+          aria-label="Attach to Chat"
+        >
+          {#if isAttached}
+            <Check size={11} />
+          {:else}
+            <Paperclip size={11} />
+          {/if}
+        </button>
+      </Tooltip>
+
+      <Tooltip text="Mention File (@file)" position="left">
+        <button
+          type="button"
+          onclick={(e) => handleInsertMention(node, e)}
+          class="p-0.5 text-muted-theme hover:text-accent-theme rounded hover:bg-surface-elevated transition-colors cursor-pointer"
+          aria-label="Insert mention"
+        >
+          <AtSign size={11} />
+        </button>
+      </Tooltip>
+
+      <Tooltip text="Open File" position="left">
+        <button
+          type="button"
+          onclick={(e) => handleOpenFile(node.path, e)}
+          class="p-0.5 text-muted-theme hover:text-primary-theme rounded hover:bg-surface-elevated transition-colors cursor-pointer"
+          aria-label="Open file"
+        >
+          <ExternalLink size={11} />
+        </button>
+      </Tooltip>
+
+      <Tooltip text="Reveal in Windows Explorer" position="left">
+        <button
+          type="button"
+          onclick={(e) => handleRevealInExplorer(node.path, e)}
+          class="p-0.5 text-muted-theme hover:text-primary-theme rounded hover:bg-surface-elevated transition-colors cursor-pointer"
+          aria-label="Reveal in File Explorer"
+        >
+          <Eye size={11} />
+        </button>
+      </Tooltip>
+
+      <Tooltip text={copiedPath === node.path ? "Copied!" : "Copy Relative Path"} position="left">
+        <button
+          type="button"
+          onclick={(e) => handleCopyPath(node.path, e)}
+          class="p-0.5 text-muted-theme hover:text-primary-theme rounded hover:bg-surface-elevated transition-colors cursor-pointer"
+          aria-label="Copy path"
+        >
+          {#if copiedPath === node.path}
+            <Check size={11} class="text-emerald-400" />
+          {:else}
+            <Copy size={11} />
+          {/if}
+        </button>
+      </Tooltip>
+    </div>
+  </div>
 {/snippet}

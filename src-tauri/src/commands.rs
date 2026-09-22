@@ -551,6 +551,117 @@ pub fn read_workspace_dir_internal(
 }
 
 #[tauri::command]
+pub fn search_workspace_files(
+    state: State<AppState>,
+    workspace_id: String,
+    query: String,
+    max_results: Option<usize>,
+) -> Result<Vec<WorkspaceFileEntry>, String> {
+    let workspaces = state.db.list_workspaces()?;
+    let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
+        .ok_or_else(|| "Workspace not found".to_string())?;
+
+    let root = PathBuf::from(&ws.path);
+    if !root.exists() || !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    search_workspace_files_internal(&root, trimmed, max_results.unwrap_or(100))
+}
+
+pub fn search_workspace_files_internal(
+    root: &std::path::Path,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<WorkspaceFileEntry>, String> {
+    if !root.exists() || !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let q_lower = query.to_lowercase();
+    let mut entries = Vec::new();
+    walk_search_dir(root, root, &q_lower, 0, 10, max_results, &mut entries);
+
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
+}
+
+fn walk_search_dir(
+    root: &std::path::Path,
+    current: &std::path::Path,
+    query_lower: &str,
+    depth: usize,
+    max_depth: usize,
+    max_results: usize,
+    out: &mut Vec<WorkspaceFileEntry>,
+) {
+    if depth > max_depth || out.len() >= max_results {
+        return;
+    }
+
+    let read_dir = match std::fs::read_dir(current) {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+
+    let ignored_names = [
+        ".git", "node_modules", "target", "build", "dist", ".svelte-kit",
+        ".vscode", ".idea", "__pycache__", ".next", ".turbo", "vendor"
+    ];
+
+    let mut subdirs = Vec::new();
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let file_name = match entry.file_name().into_string() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        if ignored_names.iter().any(|&ign| ign.eq_ignore_ascii_case(&file_name)) {
+            continue;
+        }
+
+        let is_dir = path.is_dir();
+        if is_dir {
+            subdirs.push(path);
+        } else {
+            let relative = match path.strip_prefix(root) {
+                Ok(p) => p.to_string_lossy().replace('\\', "/"),
+                Err(_) => continue,
+            };
+
+            // Files only: check if file_name contains query (do not check directory path)
+            if file_name.to_lowercase().contains(query_lower) {
+                let extension = path.extension().and_then(|e| e.to_str()).map(|s| s.to_string());
+                out.push(WorkspaceFileEntry {
+                    name: file_name,
+                    relative_path: relative,
+                    is_dir: false,
+                    extension,
+                });
+            }
+
+            if out.len() >= max_results {
+                return;
+            }
+        }
+    }
+
+    for subdir in subdirs {
+        walk_search_dir(root, &subdir, query_lower, depth + 1, max_depth, max_results, out);
+        if out.len() >= max_results {
+            return;
+        }
+    }
+}
+
+#[tauri::command]
 pub fn list_workspace_files(state: State<AppState>, workspace_id: String) -> Result<Vec<WorkspaceFileEntry>, String> {
     let workspaces = state.db.list_workspaces()?;
     let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
@@ -930,6 +1041,56 @@ mod tests {
         assert_eq!(sub_entries[0].name, "main.rs");
         assert_eq!(sub_entries[0].relative_path, "src/main.rs");
         assert_eq!(sub_entries[0].extension.as_deref(), Some("rs"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_search_workspace_files() {
+        let temp_dir = std::env::temp_dir().join(format!("gemini_test_search_ws_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Structure:
+        // temp_dir/
+        //   readme.md
+        //   src/
+        //     app.svelte
+        //     SolutionExplorer.svelte
+        //   node_modules/
+        //     ignored.svelte
+
+        std::fs::write(temp_dir.join("readme.md"), "# Test").unwrap();
+
+        let src_dir = temp_dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("app.svelte"), "<div/>").unwrap();
+        std::fs::write(src_dir.join("SolutionExplorer.svelte"), "<script/>").unwrap();
+
+        let nm_dir = temp_dir.join("node_modules");
+        std::fs::create_dir_all(&nm_dir).unwrap();
+        std::fs::write(nm_dir.join("ignored.svelte"), "").unwrap();
+
+        // 1. Search for "solution" - should match only SolutionExplorer.svelte
+        let res = search_workspace_files_internal(&temp_dir, "solution", 100).expect("search failed");
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].name, "SolutionExplorer.svelte");
+        assert_eq!(res[0].relative_path, "src/SolutionExplorer.svelte");
+        assert!(!res[0].is_dir);
+
+        // 2. Search for "svelte" - should match app.svelte and SolutionExplorer.svelte, but NOT node_modules
+        let svelte_res = search_workspace_files_internal(&temp_dir, "svelte", 100).expect("search failed");
+        assert_eq!(svelte_res.len(), 2);
+        assert_eq!(svelte_res[0].name, "app.svelte");
+        assert_eq!(svelte_res[1].name, "SolutionExplorer.svelte");
+
+        // 3. Search for "src" (folder name) - should return 0 because path is not matched, only filename
+        let path_res = search_workspace_files_internal(&temp_dir, "src", 100).expect("search failed");
+        assert_eq!(path_res.len(), 0);
+
+        // 4. Search with limit = 1
+        let limited = search_workspace_files_internal(&temp_dir, "svelte", 1).expect("search failed");
+        assert_eq!(limited.len(), 1);
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
