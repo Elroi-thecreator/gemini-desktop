@@ -1,14 +1,12 @@
 <script lang="ts">
   import type { Workspace, WorkspaceFileEntry } from "$lib/types";
+  import { invoke } from "@tauri-apps/api/core";
   import {
     Folder,
     FolderOpen,
     ChevronRight,
-    Search,
-    X,
     RotateCw,
     ChevronsDownUp,
-    ChevronsUpDown,
     PanelRightClose,
     PanelRight,
     Copy,
@@ -37,6 +35,8 @@
     isDir: boolean;
     extension?: string;
     children: TreeNode[];
+    isLoaded?: boolean;
+    isLoading?: boolean;
   }
 
   let {
@@ -50,7 +50,7 @@
     onAttachMultiple,
   }: {
     workspace: Workspace | null;
-    workspaceFiles: WorkspaceFileEntry[];
+    workspaceFiles?: WorkspaceFileEntry[];
     isOpen: boolean;
     onToggle: () => void;
     onRefresh?: () => void;
@@ -59,14 +59,14 @@
     onAttachMultiple?: (items: { path: string; isDir: boolean; name?: string }[]) => void;
   } = $props();
 
-  // State
-  let searchQuery = $state("");
+  // Dynamic Root State
+  let rootNodes = $state<TreeNode[]>([]);
+  let isLoadingRoot = $state(false);
   let expandedDirs = $state<Set<string>>(new Set());
   let selectedNode = $state<TreeNode | null>(null);
   let copiedPath = $state<string | null>(null);
   let attachedPath = $state<string | null>(null);
   let isRefreshing = $state(false);
-  let searchInputElem: HTMLInputElement | null = $state(null);
 
   // Hidden files toggle state (hidden by default)
   let showHiddenFiles = $state(false);
@@ -82,180 +82,137 @@
   let explorerWidth = $state(310);
   let isDragging = $state(false);
 
-  // Build tree from flat workspaceFiles (hiding dotfiles unless showHiddenFiles is true)
-  let treeData = $derived.by(() => {
-    return buildTree(workspaceFiles, searchQuery, showHiddenFiles);
+  // Filter helper: dotfiles/dotfolders are hidden unless showHiddenFiles is true
+  function isNodeVisible(node: TreeNode, showHidden: boolean): boolean {
+    if (!showHidden && node.name.startsWith(".")) {
+      return false;
+    }
+    return true;
+  }
+
+  let visibleRootItems = $derived.by(() => {
+    return rootNodes.filter((n) => isNodeVisible(n, showHiddenFiles));
   });
 
-  // Count visible and hidden files/folders
+  // Count files and directories across loaded nodes
   let visibleFilesCount = $derived.by(() => {
-    return workspaceFiles.filter((f) => {
-      if (f.is_dir) return false;
-      if (!showHiddenFiles && f.relative_path.split("/").some((p) => p.startsWith("."))) return false;
-      return true;
-    }).length;
+    let count = 0;
+    function countFiles(nodes: TreeNode[]) {
+      for (const n of nodes) {
+        if (!isNodeVisible(n, showHiddenFiles)) continue;
+        if (!n.isDir) count++;
+        else if (n.isLoaded && expandedDirs.has(n.path)) countFiles(n.children);
+      }
+    }
+    countFiles(rootNodes);
+    return count;
   });
 
   let visibleDirsCount = $derived.by(() => {
-    return workspaceFiles.filter((f) => {
-      if (!f.is_dir) return false;
-      if (!showHiddenFiles && f.relative_path.split("/").some((p) => p.startsWith("."))) return false;
-      return true;
-    }).length;
+    let count = 0;
+    function countDirs(nodes: TreeNode[]) {
+      for (const n of nodes) {
+        if (!isNodeVisible(n, showHiddenFiles)) continue;
+        if (n.isDir) {
+          count++;
+          if (n.isLoaded && expandedDirs.has(n.path)) countDirs(n.children);
+        }
+      }
+    }
+    countDirs(rootNodes);
+    return count;
   });
 
   let hiddenItemsCount = $derived.by(() => {
-    return workspaceFiles.filter((f) => {
-      return f.relative_path.split("/").some((p) => p.startsWith("."));
-    }).length;
+    let count = 0;
+    function countHidden(nodes: TreeNode[]) {
+      for (const n of nodes) {
+        if (n.name.startsWith(".")) count++;
+        if (n.isDir && n.isLoaded && expandedDirs.has(n.path)) countHidden(n.children);
+      }
+    }
+    countHidden(rootNodes);
+    return count;
   });
 
   let currentWorkspaceId = $state<string | null>(null);
-  let preSearchExpandedDirs = $state<Set<string>>(new Set());
-  let wasSearching = $state(false);
 
-  // Keep all folders in a collapsed state by default for optimal performance.
-  // Reset expansion and selection when switching workspaces.
+  // Reset expansion and reload root nodes on workspace change or initial load
   $effect(() => {
-    if (workspace?.id !== currentWorkspaceId) {
-      currentWorkspaceId = workspace?.id || null;
+    const wsId = workspace?.id || null;
+    if (wsId !== currentWorkspaceId) {
+      currentWorkspaceId = wsId;
       expandedDirs = new Set();
       checkedItems = new Map();
       selectedNode = null;
+      rootNodes = [];
+      if (wsId) {
+        loadRootNodes(wsId);
+      }
     }
   });
 
-  // When search query is active, auto-expand matching branches, and restore collapsed state when cleared
-  $effect(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      if (!wasSearching) {
-        preSearchExpandedDirs = new Set(expandedDirs);
-        wasSearching = true;
-      }
-      const allDirs = new Set(expandedDirs);
-      function expandMatching(nodes: TreeNode[]) {
-        for (const n of nodes) {
-          if (n.isDir) {
-            allDirs.add(n.path);
-            expandMatching(n.children);
-          }
-        }
-      }
-      expandMatching(treeData);
-      expandedDirs = allDirs;
-    } else if (wasSearching) {
-      expandedDirs = preSearchExpandedDirs;
-      wasSearching = false;
-    }
-  });
-
-  function buildTree(entries: WorkspaceFileEntry[], query: string, showHidden: boolean): TreeNode[] {
-    const nodeMap = new Map<string, TreeNode>();
-    const rootNodes: TreeNode[] = [];
-    const trimmedQuery = query.trim().toLowerCase();
-    const querySearchesHidden = trimmedQuery.startsWith(".");
-
-    for (const entry of entries) {
-      const parts = entry.relative_path.split("/");
-
-      // Filter out hidden files and folders (starting with '.') unless showHidden is true
-      // or user explicitly types a query starting with '.'
-      if (!showHidden && !querySearchesHidden) {
-        if (parts.some((p) => p.startsWith("."))) {
-          continue;
-        }
-      }
-
-      let currentPath = "";
-
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        const isLast = i === parts.length - 1;
-        const partPath = currentPath ? `${currentPath}/${part}` : part;
-
-        if (!nodeMap.has(partPath)) {
-          const isDir = isLast ? entry.is_dir : true;
-          const ext = isLast ? entry.extension : undefined;
-          const node: TreeNode = {
-            name: part,
-            path: partPath,
-            isDir,
-            extension: ext,
-            children: [],
-          };
-          nodeMap.set(partPath, node);
-
-          if (i === 0) {
-            rootNodes.push(node);
-          } else {
-            const parent = nodeMap.get(currentPath);
-            if (parent && !parent.children.some((c) => c.path === partPath)) {
-              parent.children.push(node);
-            }
-          }
-        }
-        currentPath = partPath;
-      }
-    }
-
-    // Sort: directories first (alphabetical), then files (alphabetical)
-    function sortNodes(nodes: TreeNode[]) {
-      nodes.sort((a, b) => {
-        if (a.isDir !== b.isDir) {
-          return a.isDir ? -1 : 1;
-        }
-        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  async function loadRootNodes(wsId: string) {
+    isLoadingRoot = true;
+    try {
+      const entries = await invoke<WorkspaceFileEntry[]>("read_workspace_dir", {
+        workspaceId: wsId,
+        relativePath: "",
       });
-      for (const node of nodes) {
-        if (node.children.length > 0) {
-          sortNodes(node.children);
-        }
-      }
+      rootNodes = entries.map((entry) => ({
+        name: entry.name,
+        path: entry.relative_path,
+        isDir: entry.is_dir,
+        extension: entry.extension,
+        children: [],
+        isLoaded: false,
+        isLoading: false,
+      }));
+    } catch (err) {
+      console.error("Failed to load root workspace directory:", err);
+      rootNodes = [];
+    } finally {
+      isLoadingRoot = false;
     }
-    sortNodes(rootNodes);
-
-    // Apply search filter if query present
-    if (trimmedQuery) {
-      function filterNode(node: TreeNode): TreeNode | null {
-        const selfMatch =
-          node.name.toLowerCase().includes(trimmedQuery) ||
-          node.path.toLowerCase().includes(trimmedQuery);
-        const filteredChildren: TreeNode[] = [];
-
-        for (const child of node.children) {
-          const res = filterNode(child);
-          if (res) filteredChildren.push(res);
-        }
-
-        if (selfMatch || filteredChildren.length > 0) {
-          return {
-            ...node,
-            children: filteredChildren,
-          };
-        }
-        return null;
-      }
-
-      const filteredRoots: TreeNode[] = [];
-      for (const root of rootNodes) {
-        const res = filterNode(root);
-        if (res) filteredRoots.push(res);
-      }
-      return filteredRoots;
-    }
-
-    return rootNodes;
   }
 
-  function toggleDir(path: string, e?: MouseEvent) {
+  // Dynamic lazy loading: fetch subfolder contents only when folder is opened
+  async function toggleDir(node: TreeNode, e?: MouseEvent) {
     if (e) e.stopPropagation();
+    if (!node.isDir) return;
+
     const next = new Set(expandedDirs);
-    if (next.has(path)) {
-      next.delete(path);
-    } else {
-      next.add(path);
+    if (next.has(node.path)) {
+      next.delete(node.path);
+      expandedDirs = next;
+      return;
     }
+
+    if (!node.isLoaded && workspace) {
+      node.isLoading = true;
+      try {
+        const entries = await invoke<WorkspaceFileEntry[]>("read_workspace_dir", {
+          workspaceId: workspace.id,
+          relativePath: node.path,
+        });
+        node.children = entries.map((entry) => ({
+          name: entry.name,
+          path: entry.relative_path,
+          isDir: entry.is_dir,
+          extension: entry.extension,
+          children: [],
+          isLoaded: false,
+          isLoading: false,
+        }));
+        node.isLoaded = true;
+      } catch (err) {
+        console.error(`Failed to load directory ${node.path}:`, err);
+      } finally {
+        node.isLoading = false;
+      }
+    }
+
+    next.add(node.path);
     expandedDirs = next;
   }
 
@@ -263,24 +220,12 @@
     expandedDirs = new Set();
   }
 
-  function expandAll() {
-    const all = new Set<string>();
-    function collectDirs(nodes: TreeNode[]) {
-      for (const n of nodes) {
-        if (n.isDir) {
-          all.add(n.path);
-          collectDirs(n.children);
-        }
-      }
-    }
-    collectDirs(treeData);
-    expandedDirs = all;
-  }
-
   async function handleRefreshClick() {
-    if (isRefreshing) return;
+    if (isRefreshing || !workspace) return;
     isRefreshing = true;
     try {
+      await loadRootNodes(workspace.id);
+      expandedDirs = new Set();
       if (onRefresh) await onRefresh();
     } finally {
       setTimeout(() => {
@@ -502,13 +447,6 @@
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
   }
-
-  export function focusSearch() {
-    if (searchInputElem) {
-      searchInputElem.focus();
-      searchInputElem.select();
-    }
-  }
 </script>
 
 {#if !isOpen}
@@ -625,18 +563,6 @@
           </button>
         </Tooltip>
 
-        <!-- Expand All -->
-        <Tooltip text="Expand All Folders" position="bottom">
-          <button
-            type="button"
-            onclick={expandAll}
-            class="p-1 rounded hover:bg-surface-hover hover:text-primary-theme transition-colors cursor-pointer"
-            aria-label="Expand all folders"
-          >
-            <ChevronsUpDown size={13} />
-          </button>
-        </Tooltip>
-
         <!-- Collapse to Right (Close/Dock) -->
         <Tooltip text="Collapse to Right" shortcut="Ctrl+Alt+L" position="bottom">
           <button
@@ -650,33 +576,6 @@
         </Tooltip>
       </div>
     </header>
-
-    <!-- Search / Filter Bar -->
-    <div class="px-2 py-1.5 bg-sidebar border-b border-subtle">
-      <div class="relative flex items-center">
-        <Search size={12} class="absolute left-2 text-muted-theme pointer-events-none" />
-        <input
-          bind:this={searchInputElem}
-          type="text"
-          bind:value={searchQuery}
-          placeholder="Search Workspace Explorer (Ctrl+;)"
-          class="w-full pl-7 pr-6 py-1 text-xs bg-surface text-primary-theme placeholder:text-muted-theme rounded border border-theme-default focus:border-accent-theme focus:outline-none transition-colors"
-        />
-        {#if searchQuery}
-          <button
-            type="button"
-            onclick={() => {
-              searchQuery = "";
-              searchInputElem?.focus();
-            }}
-            class="absolute right-1.5 p-0.5 text-muted-theme hover:text-primary-theme cursor-pointer"
-            aria-label="Clear search"
-          >
-            <X size={12} />
-          </button>
-        {/if}
-      </div>
-    </div>
 
     <!-- Multi-Select Action Banner (When Items are Checked) -->
     {#if isSelectMode || checkedItems.size > 0}
@@ -732,19 +631,15 @@
         </div>
       </div>
 
-      {#if treeData.length === 0}
+      {#if isLoadingRoot}
+        <div class="p-8 text-center text-muted-theme text-xs flex flex-col items-center justify-center gap-2">
+          <RotateCw size={18} class="animate-spin text-accent-theme" />
+          <span>Loading workspace files...</span>
+        </div>
+      {:else if visibleRootItems.length === 0}
         <div class="p-4 text-center text-muted-theme text-xs flex flex-col items-center gap-2">
           <FolderTree size={24} class="opacity-40 text-muted-theme" />
-          {#if searchQuery}
-            <span>No files or folders match "{searchQuery}"</span>
-            <button
-              type="button"
-              onclick={() => (searchQuery = "")}
-              class="text-accent-theme hover:underline cursor-pointer"
-            >
-              Clear search filter
-            </button>
-          {:else if hiddenItemsCount > 0 && !showHiddenFiles}
+          {#if hiddenItemsCount > 0 && !showHiddenFiles}
             <span>Only hidden files exist ({hiddenItemsCount} hidden)</span>
             <button
               type="button"
@@ -769,7 +664,7 @@
       {:else}
         <!-- Tree Nodes with Recursive Snippet -->
         <div class="py-0.5">
-          {#each treeData as node (node.path)}
+          {#each visibleRootItems as node (node.path)}
             {@render treeRow(node, 0)}
           {/each}
         </div>
@@ -920,7 +815,7 @@
       if (isSelectMode) {
         toggleCheckItem(node);
       } else if (node.isDir) {
-        toggleDir(node.path);
+        toggleDir(node);
       }
     }}
     ondblclick={(e) => {
@@ -936,7 +831,7 @@
         if (isSelectMode) {
           toggleCheckItem(node);
         } else if (node.isDir) {
-          toggleDir(node.path);
+          toggleDir(node);
         }
       }
     }}
@@ -971,14 +866,18 @@
     {#if node.isDir}
       <button
         type="button"
-        onclick={(e) => toggleDir(node.path, e)}
+        onclick={(e) => toggleDir(node, e)}
         class="w-3.5 h-3.5 flex items-center justify-center text-muted-theme hover:text-primary-theme shrink-0 cursor-pointer"
         aria-label={isExpanded ? "Collapse folder" : "Expand folder"}
       >
-        <ChevronRight
-          size={12}
-          class="transition-transform duration-150 {isExpanded ? 'rotate-90 text-primary-theme' : ''}"
-        />
+        {#if node.isLoading}
+          <RotateCw size={11} class="animate-spin text-accent-theme" />
+        {:else}
+          <ChevronRight
+            size={12}
+            class="transition-transform duration-150 {isExpanded ? 'rotate-90 text-primary-theme' : ''}"
+          />
+        {/if}
       </button>
     {:else}
       <span class="w-3.5 h-3.5 shrink-0"></span>
@@ -1096,9 +995,29 @@
   <!-- Recursive Render Children when Folder is Expanded -->
   {#if node.isDir && isExpanded}
     <div>
-      {#each node.children as child (child.path)}
-        {@render treeRow(child, depth + 1)}
-      {/each}
+      {#if node.isLoading}
+        <div
+          class="flex items-center gap-1.5 h-6 text-muted-theme text-[11px] select-none italic"
+          style="padding-left: {(depth + 1) * 14 + 6}px;"
+        >
+          <RotateCw size={11} class="animate-spin text-accent-theme" />
+          <span>Loading...</span>
+        </div>
+      {:else}
+        {@const visibleChildren = node.children.filter((c) => isNodeVisible(c, showHiddenFiles))}
+        {#if node.isLoaded && visibleChildren.length === 0}
+          <div
+            class="flex items-center h-6 text-muted-theme/60 text-[11px] select-none italic"
+            style="padding-left: {(depth + 1) * 14 + 6}px;"
+          >
+            (empty)
+          </div>
+        {:else}
+          {#each visibleChildren as child (child.path)}
+            {@render treeRow(child, depth + 1)}
+          {/each}
+        {/if}
+      {/if}
     </div>
   {/if}
 {/snippet}

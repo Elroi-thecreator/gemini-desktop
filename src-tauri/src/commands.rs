@@ -445,6 +445,112 @@ pub struct WorkspaceFileEntry {
 }
 
 #[tauri::command]
+pub fn read_workspace_dir(
+    state: State<AppState>,
+    workspace_id: String,
+    relative_path: Option<String>,
+) -> Result<Vec<WorkspaceFileEntry>, String> {
+    let workspaces = state.db.list_workspaces()?;
+    let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
+        .ok_or_else(|| "Workspace not found".to_string())?;
+
+    let root = PathBuf::from(&ws.path);
+    if !root.exists() || !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    read_workspace_dir_internal(&root, relative_path.as_deref())
+}
+
+pub fn read_workspace_dir_internal(
+    root: &std::path::Path,
+    relative_path: Option<&str>,
+) -> Result<Vec<WorkspaceFileEntry>, String> {
+    if !root.exists() || !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let target_dir = if let Some(rel) = relative_path {
+        let clean_rel = rel.trim().trim_start_matches('/').trim_start_matches('\\');
+        if clean_rel.is_empty() {
+            root.to_path_buf()
+        } else {
+            let candidate = root.join(clean_rel);
+            if let (Ok(can_cand), Ok(can_root)) = (candidate.canonicalize(), root.canonicalize()) {
+                if !can_cand.starts_with(&can_root) {
+                    return Err("Access denied: path outside workspace root".to_string());
+                }
+            }
+            candidate
+        }
+    } else {
+        root.to_path_buf()
+    };
+
+    if !target_dir.exists() || !target_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let read_dir = match std::fs::read_dir(&target_dir) {
+        Ok(rd) => rd,
+        Err(e) => return Err(format!("Failed to read directory: {}", e)),
+    };
+
+    let ignored_names = [
+        ".git", "node_modules", "target", "build", "dist", ".svelte-kit",
+        ".vscode", ".idea", "__pycache__", ".next", ".turbo", "vendor"
+    ];
+
+    let mut entries = Vec::new();
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let file_name = match entry.file_name().into_string() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        if ignored_names.iter().any(|&ign| ign.eq_ignore_ascii_case(&file_name)) {
+            continue;
+        }
+
+        let is_dir = path.is_dir();
+        let relative = match path.strip_prefix(root) {
+            Ok(p) => p.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+
+        let extension = if is_dir {
+            None
+        } else {
+            path.extension().and_then(|e| e.to_str()).map(|s| s.to_string())
+        };
+
+        entries.push(WorkspaceFileEntry {
+            name: file_name,
+            relative_path: relative,
+            is_dir,
+            extension,
+        });
+    }
+
+    // Sort: directories first (alphabetical case-insensitive), then files (alphabetical case-insensitive)
+    entries.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            if a.is_dir {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
 pub fn list_workspace_files(state: State<AppState>, workspace_id: String) -> Result<Vec<WorkspaceFileEntry>, String> {
     let workspaces = state.db.list_workspaces()?;
     let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
@@ -787,6 +893,46 @@ mod tests {
         let with_status = "Status: @git:status";
         let resolved_status = resolve_git_context(with_status, None);
         assert!(resolved_status.contains("[Context: Git Status]"));
+    }
+
+    #[test]
+    fn test_read_workspace_dir() {
+        let temp_dir = std::env::temp_dir().join(format!("gemini_test_read_dir_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create a root file and a root subfolder
+        std::fs::write(temp_dir.join("root_file.txt"), "hello").unwrap();
+        let sub_dir = temp_dir.join("src");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+        std::fs::write(sub_dir.join("main.rs"), "fn main() {}").unwrap();
+
+        // Create ignored folder
+        let git_dir = temp_dir.join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::write(git_dir.join("config"), "").unwrap();
+
+        // 1. Read root directory
+        let root_entries = read_workspace_dir_internal(&temp_dir, None).expect("failed to read root dir");
+        // Should contain "src" (dir) and "root_file.txt" (file), but NOT ".git"
+        assert_eq!(root_entries.len(), 2);
+        assert!(root_entries[0].is_dir);
+        assert_eq!(root_entries[0].name, "src");
+        assert_eq!(root_entries[0].relative_path, "src");
+
+        assert!(!root_entries[1].is_dir);
+        assert_eq!(root_entries[1].name, "root_file.txt");
+        assert_eq!(root_entries[1].relative_path, "root_file.txt");
+        assert_eq!(root_entries[1].extension.as_deref(), Some("txt"));
+
+        // 2. Read subfolder dynamically
+        let sub_entries = read_workspace_dir_internal(&temp_dir, Some("src")).expect("failed to read sub dir");
+        assert_eq!(sub_entries.len(), 1);
+        assert_eq!(sub_entries[0].name, "main.rs");
+        assert_eq!(sub_entries[0].relative_path, "src/main.rs");
+        assert_eq!(sub_entries[0].extension.as_deref(), Some("rs"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
 

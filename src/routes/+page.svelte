@@ -48,7 +48,6 @@
   let showSidebar = $state(true);
 
   let chatViewRef = $state<ReturnType<typeof ChatView> | null>(null);
-  let solutionExplorerRef = $state<ReturnType<typeof SolutionExplorer> | null>(null);
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
@@ -145,12 +144,6 @@
     } else if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "l" || e.key === "L")) {
       e.preventDefault();
       showSolutionExplorer = !showSolutionExplorer;
-    } else if ((e.ctrlKey || e.metaKey) && e.key === ";") {
-      e.preventDefault();
-      if (!showSolutionExplorer) showSolutionExplorer = true;
-      setTimeout(() => {
-        solutionExplorerRef?.focusSearch();
-      }, 50);
     }
   }
 
@@ -402,7 +395,6 @@
 
   <!-- Right Visual Studio 2022 Workspace Explorer -->
   <SolutionExplorer
-    bind:this={solutionExplorerRef}
     workspace={activeWorkspace}
     {workspaceFiles}
     isOpen={showSolutionExplorer}

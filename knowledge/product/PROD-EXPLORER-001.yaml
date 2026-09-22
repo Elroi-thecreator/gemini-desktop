@@ -3,7 +3,7 @@ type: product_standard
 title: Workspace Explorer Tree Navigation, Context Attachment & File Filtering
 domain: product
 status: approved
-version: 1.0.0
+version: 1.1.0
 authority:
   level: official
   confidence: high
@@ -16,25 +16,28 @@ applies_to:
   - workspace
 
 rule:
-  "The Workspace Explorer provides an interactive, Visual Studio 2022-inspired hierarchical file tree docked on the right side of the workspace canvas. Users can browse directories, filter out noise, and attach files or directories to the chat prompt."
+  "The Workspace Explorer provides an interactive, Visual Studio 2022-inspired hierarchical file tree docked on the right side of the workspace canvas. Files and folders are loaded dynamically on demand without artificial file limits, and users can attach files or directories directly to the chat prompt."
 
 do:
   - "Dock Workspace Explorer to the right margin with collapsible auto-hide tab and horizontal resizing handle (240px–600px)."
-  - "Default to collapsing all folders on initial load and workspace switch for optimal DOM performance, expanding on-demand or during active search."
+  - "Load only root-level items initially on workspace mount/switch, keeping all directories collapsed by default for zero latency and instant rendering."
+  - "Dynamically lazy-load subfolder contents on-demand via `read_workspace_dir` when a user clicks to expand a folder."
   - "Filter out dotfiles and dotfolders (names starting with `.`) by default, with an `Eye`/`EyeOff` toggle button in the toolbar to reveal them on demand."
-  - "Automatically reveal matching hidden items if the user explicitly types a search query starting with `.` (e.g. `.env` or `.git`)."
+  - "Provide a 'Collapse All Folders' action button (`ChevronsDownUp`) in the toolbar to quickly collapse the tree hierarchy."
   - "Provide multi-select mode (`isSelectMode`) with checkboxes to batch-select multiple files or folders and attach them to chat context with one click."
   - "Provide instant single-click inline attachment (`Paperclip` icon) and `@mention` insertion (`@` icon) on hover for any file or directory row."
   - "Render distinct Visual Studio 2022 color badges and icons based on file type and extension."
   - "Support context menu actions: open in system default app, reveal in Windows Explorer, and copy relative path."
-  - "Provide keyboard shortcuts: `Ctrl+Alt+L` to toggle Workspace Explorer and `Ctrl+;` to focus the explorer search filter."
+  - "Provide keyboard shortcut: `Ctrl+Alt+L` to toggle Workspace Explorer."
 
 dont:
-  - "Do not display hidden configuration or dotfiles by default unless toggled or specifically searched."
-  - "Do not auto-expand entire deep folder hierarchies on load, which degrades performance on large workspaces."
+  - "Do not preload entire multi-thousand file trees upfront or cap browsing at arbitrary limits like 3,000 files."
+  - "Do not provide an 'Expand All' option that can accidentally mount tens of thousands of DOM nodes and freeze the webview."
+  - "Do not implement tree-wide recursive auto-expanding search inside the explorer panel that degrades DOM performance on massive repositories."
+  - "Do not display hidden configuration or dotfiles by default unless toggled via the toolbar."
 
 reason:
-  "Visual Studio-style tree exploration gives developers immediate spatial awareness of project structure and lets them fluidly attach multiple files and folders into AI prompt context without modal dialogs."
+  "Dynamic on-demand directory fetching (`std::fs::read_dir`) ensures instantaneous tree interaction and supports projects with tens of thousands of files without UI freezes, DOM bloat, or arbitrary file caps."
 
 related_items:
   - PROD-WS-001

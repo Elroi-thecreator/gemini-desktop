@@ -45,6 +45,7 @@ pub fn run() {
             search_history,
             export_session,
             list_workspace_files,
+            read_workspace_dir,
             get_mcp_config,
             save_mcp_config,
             run_terminal_command,
