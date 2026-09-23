@@ -122,7 +122,12 @@
       </button>
 
       {#if showWorkspaceMenu}
-        <div class="absolute left-0 right-0 mt-1 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-30">
+        <div
+          class="fixed inset-0 z-30"
+          onclick={() => (showWorkspaceMenu = false)}
+          role="presentation"
+        ></div>
+        <div class="absolute left-0 right-0 mt-1 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-40">
           {#each workspaces as ws}
             <button
               onclick={() => {

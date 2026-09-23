@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, State, Emitter};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub supervisor: ProcessSupervisor,
     pub acp_session: Arc<AcpSession>,
     pub active_process_workspace: Arc<Mutex<Option<String>>>,
+    pub search_generation: Arc<AtomicU64>,
 }
 
 #[tauri::command]
@@ -551,8 +553,13 @@ pub fn read_workspace_dir_internal(
 }
 
 #[tauri::command]
-pub fn search_workspace_files(
-    state: State<AppState>,
+pub fn cancel_workspace_search(state: State<'_, AppState>) {
+    state.search_generation.fetch_add(1, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub async fn search_workspace_files(
+    state: State<'_, AppState>,
     workspace_id: String,
     query: String,
     max_results: Option<usize>,
@@ -566,18 +573,27 @@ pub fn search_workspace_files(
         return Ok(Vec::new());
     }
 
-    let trimmed = query.trim();
+    let trimmed = query.trim().to_string();
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
 
-    search_workspace_files_internal(&root, trimmed, max_results.unwrap_or(100))
+    let search_gen = state.search_generation.clone();
+    let current_id = search_gen.fetch_add(1, Ordering::SeqCst) + 1;
+    let limit = max_results.unwrap_or(100);
+
+    tokio::task::spawn_blocking(move || {
+        search_workspace_files_internal(&root, &trimmed, limit, Some((&search_gen, current_id)))
+    })
+    .await
+    .map_err(|e| format!("Search task failed: {}", e))?
 }
 
 pub fn search_workspace_files_internal(
     root: &std::path::Path,
     query: &str,
     max_results: usize,
+    cancellation: Option<(&Arc<AtomicU64>, u64)>,
 ) -> Result<Vec<WorkspaceFileEntry>, String> {
     if !root.exists() || !root.is_dir() {
         return Ok(Vec::new());
@@ -585,7 +601,7 @@ pub fn search_workspace_files_internal(
 
     let q_lower = query.to_lowercase();
     let mut entries = Vec::new();
-    walk_search_dir(root, root, &q_lower, 0, 10, max_results, &mut entries);
+    walk_search_dir(root, root, &q_lower, 0, 10, max_results, cancellation, &mut entries);
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(entries)
@@ -598,10 +614,18 @@ fn walk_search_dir(
     depth: usize,
     max_depth: usize,
     max_results: usize,
+    cancellation: Option<(&Arc<AtomicU64>, u64)>,
     out: &mut Vec<WorkspaceFileEntry>,
 ) {
     if depth > max_depth || out.len() >= max_results {
         return;
+    }
+
+    // Abort traversal if cancelled or superseded by newer search
+    if let Some((gen, id)) = cancellation {
+        if gen.load(Ordering::Relaxed) != id {
+            return;
+        }
     }
 
     let read_dir = match std::fs::read_dir(current) {
@@ -617,6 +641,12 @@ fn walk_search_dir(
     let mut subdirs = Vec::new();
 
     for entry in read_dir.flatten() {
+        if let Some((gen, id)) = cancellation {
+            if gen.load(Ordering::Relaxed) != id {
+                return;
+            }
+        }
+
         let path = entry.path();
         let file_name = match entry.file_name().into_string() {
             Ok(s) => s,
@@ -654,11 +684,54 @@ fn walk_search_dir(
     }
 
     for subdir in subdirs {
-        walk_search_dir(root, &subdir, query_lower, depth + 1, max_depth, max_results, out);
+        walk_search_dir(root, &subdir, query_lower, depth + 1, max_depth, max_results, cancellation, out);
         if out.len() >= max_results {
             return;
         }
     }
+}
+
+#[tauri::command]
+pub fn open_workspace_file(path: String, with_app: Option<String>) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("File does not exist: {}", path));
+    }
+
+    if let Some(ref app) = with_app {
+        if app.eq_ignore_ascii_case("notepad") {
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new("notepad.exe")
+                    .arg(&path)
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| format!("Failed to launch Notepad: {}", e))?;
+                return Ok(());
+            }
+        }
+        return open::with_detached(&path, app).map_err(|e| format!("Failed to open with {}: {}", app, e));
+    }
+
+    // Try system default application first
+    let res = open::that_detached(&path);
+    if res.is_err() {
+        // Fallback to Notepad on Windows if no default application is associated with this file type
+        #[cfg(target_os = "windows")]
+        {
+            return std::process::Command::new("notepad.exe")
+                .arg(&path)
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| format!("Failed to open file with default app and Notepad: {}", e));
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            return res.map_err(|e| e.to_string());
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1072,28 +1145,46 @@ mod tests {
         std::fs::write(nm_dir.join("ignored.svelte"), "").unwrap();
 
         // 1. Search for "solution" - should match only SolutionExplorer.svelte
-        let res = search_workspace_files_internal(&temp_dir, "solution", 100).expect("search failed");
+        let res = search_workspace_files_internal(&temp_dir, "solution", 100, None).expect("search failed");
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].name, "SolutionExplorer.svelte");
         assert_eq!(res[0].relative_path, "src/SolutionExplorer.svelte");
         assert!(!res[0].is_dir);
 
         // 2. Search for "svelte" - should match app.svelte and SolutionExplorer.svelte, but NOT node_modules
-        let svelte_res = search_workspace_files_internal(&temp_dir, "svelte", 100).expect("search failed");
+        let svelte_res = search_workspace_files_internal(&temp_dir, "svelte", 100, None).expect("search failed");
         assert_eq!(svelte_res.len(), 2);
         assert_eq!(svelte_res[0].name, "app.svelte");
         assert_eq!(svelte_res[1].name, "SolutionExplorer.svelte");
 
         // 3. Search for "src" (folder name) - should return 0 because path is not matched, only filename
-        let path_res = search_workspace_files_internal(&temp_dir, "src", 100).expect("search failed");
+        let path_res = search_workspace_files_internal(&temp_dir, "src", 100, None).expect("search failed");
         assert_eq!(path_res.len(), 0);
 
         // 4. Search with limit = 1
-        let limited = search_workspace_files_internal(&temp_dir, "svelte", 1).expect("search failed");
+        let limited = search_workspace_files_internal(&temp_dir, "svelte", 1, None).expect("search failed");
         assert_eq!(limited.len(), 1);
+
+        // 5. Test search cancellation token
+        let token = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1));
+        // Pass mismatched ID (simulating cancellation) -> should abort and return 0
+        let cancelled = search_workspace_files_internal(&temp_dir, "svelte", 100, Some((&token, 999))).expect("search failed");
+        assert_eq!(cancelled.len(), 0);
+
+        // Pass matching ID -> should return results
+        let valid = search_workspace_files_internal(&temp_dir, "svelte", 100, Some((&token, 1))).expect("search failed");
+        assert_eq!(valid.len(), 2);
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_open_workspace_file_not_found() {
+        let non_existent = "C:/path/to/definitely/non_existent_file.xyz";
+        let res = open_workspace_file(non_existent.to_string(), None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("File does not exist"));
     }
 }
 

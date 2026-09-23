@@ -16,12 +16,14 @@ pub fn run() {
     let supervisor = ProcessSupervisor::new();
     let acp_session = Arc::new(AcpSession::new());
     let active_process_workspace = Arc::new(Mutex::new(None));
+    let search_generation = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let state = AppState {
         db,
         supervisor,
         acp_session,
         active_process_workspace,
+        search_generation,
     };
 
     tauri::Builder::default()
@@ -47,6 +49,8 @@ pub fn run() {
             list_workspace_files,
             read_workspace_dir,
             search_workspace_files,
+            cancel_workspace_search,
+            open_workspace_file,
             get_mcp_config,
             save_mcp_config,
             run_terminal_command,

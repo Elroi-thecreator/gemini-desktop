@@ -21,7 +21,7 @@
 </script>
 
 <div
-  class="relative {className || 'inline-flex items-center'}"
+  class="relative {isHovered ? 'z-50' : ''} {className || 'inline-flex items-center'}"
   role="presentation"
   onmouseenter={() => (isHovered = true)}
   onmouseleave={() => (isHovered = false)}

@@ -31,6 +31,7 @@
   } from "lucide-svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
   import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { dialogManager } from "$lib/dialog.svelte";
 
   export interface TreeNode {
     name: string;
@@ -144,6 +145,7 @@
   let isSearching = $state(false);
   let searchResults = $state<TreeNode[]>([]);
   let searchInputEl: HTMLInputElement | null = $state(null);
+  let searchReqSeq = 0;
 
   let visibleSearchResults = $derived.by(() => {
     return searchResults.filter((n) => isNodeVisible(n, showHiddenFiles));
@@ -156,6 +158,7 @@
       return;
     }
     if (!workspace) return;
+    const thisReq = ++searchReqSeq;
     isSearching = true;
     activeSearch = q;
     try {
@@ -164,6 +167,9 @@
         query: q,
         maxResults: 100,
       });
+      // Ignore if another search was triggered or cleared
+      if (thisReq !== searchReqSeq || !activeSearch) return;
+
       searchResults = entries.map((entry) => ({
         name: entry.name,
         path: entry.relative_path,
@@ -174,17 +180,24 @@
         isLoading: false,
       }));
     } catch (err) {
-      console.error("Search failed:", err);
-      searchResults = [];
+      if (thisReq === searchReqSeq) {
+        console.error("Search failed:", err);
+        searchResults = [];
+      }
     } finally {
-      isSearching = false;
+      if (thisReq === searchReqSeq) {
+        isSearching = false;
+      }
     }
   }
 
   function clearSearch() {
+    searchReqSeq++;
     searchQuery = "";
     activeSearch = "";
     searchResults = [];
+    isSearching = false;
+    invoke("cancel_workspace_search").catch(() => {});
     searchInputEl?.focus();
   }
 
@@ -357,18 +370,31 @@
   }
 
   function resolveFullPath(relPath: string): string {
+    if (!relPath) return "";
+    if (/^[a-zA-Z]:[/\\]/.test(relPath) || relPath.startsWith("\\\\")) {
+      return relPath.replace(/\//g, "\\");
+    }
     if (!workspace?.path) return relPath;
     const base = workspace.path.replace(/[/\\]+$/, "");
-    return `${base}/${relPath}`.replace(/\//g, "\\");
+    const cleanRel = relPath.replace(/^[/\\]+/, "");
+    return `${base}\\${cleanRel}`.replace(/\//g, "\\");
   }
 
-  async function handleOpenFile(nodePath: string, e?: MouseEvent) {
+  async function handleOpenFile(nodePath: string, e?: MouseEvent, options?: { forceNotepad?: boolean }) {
     if (e) e.stopPropagation();
     const full = resolveFullPath(nodePath);
+    const forceNotepad = options?.forceNotepad ?? false;
     try {
-      await openPath(full);
+      await invoke("open_workspace_file", {
+        path: full,
+        withApp: forceNotepad ? "notepad" : null,
+      });
     } catch (err) {
-      console.warn("Could not open file via system default:", err);
+      console.error("Failed to open file:", err);
+      await dialogManager.alert(
+        `Unable to open "${nodePath}".\n\n${err instanceof Error ? err.message : String(err)}`,
+        "Cannot Open File"
+      );
     }
     contextMenu = null;
   }
@@ -553,7 +579,7 @@
     ></button>
 
     <!-- Top Header: Workspace Explorer Title & Toolbar -->
-    <header class="h-[34px] min-h-[34px] px-2.5 bg-surface border-b border-subtle flex items-center justify-between gap-1">
+    <header class="h-[34px] min-h-[34px] px-2.5 bg-surface border-b border-subtle flex items-center justify-between gap-1 relative z-20">
       <div class="flex items-center gap-1.5 truncate">
         <!-- Explorer Cube Icon -->
         <div class="w-4 h-4 flex items-center justify-center text-[#a855f7] shrink-0">
@@ -921,7 +947,7 @@
     <div class="my-1 border-t border-subtle/60"></div>
 
     {#if !contextMenu.node.isDir}
-      <!-- Open File -->
+      <!-- Open File with Default App -->
       <button
         type="button"
         onclick={() => {
@@ -931,6 +957,18 @@
       >
         <ExternalLink size={13} class="text-secondary-theme" />
         <span>Open with Default App</span>
+      </button>
+
+      <!-- Open File with Notepad -->
+      <button
+        type="button"
+        onclick={() => {
+          if (contextMenu) handleOpenFile(contextMenu.node.path, undefined, { forceNotepad: true });
+        }}
+        class="w-full px-2.5 py-1.5 text-left hover:bg-surface-hover flex items-center gap-2 cursor-pointer text-secondary-theme hover:text-primary-theme"
+      >
+        <FileText size={13} class="text-muted-theme" />
+        <span>Open with Notepad</span>
       </button>
     {/if}
 

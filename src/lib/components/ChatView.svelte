@@ -433,7 +433,7 @@
 
 <div class="flex-1 h-screen flex flex-col bg-app text-primary-theme overflow-hidden">
   <!-- Top Bar -->
-  <header class="h-14 px-6 border-b border-subtle flex items-center justify-between bg-surface/70 backdrop-blur-xs">
+  <header class="h-14 px-6 border-b border-subtle flex items-center justify-between bg-surface/70 backdrop-blur-xs relative z-30">
     <div class="flex items-center gap-3 truncate">
       {#if onToggleSidebar}
         <Tooltip
@@ -535,13 +535,19 @@
         </Tooltip>
 
       {#if showExportMenu}
-        <div class="absolute right-0 mt-1.5 w-40 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-30 text-xs">
+        <!-- Backdrop to close export dropdown on click outside -->
+        <div
+          class="fixed inset-0 z-30"
+          onclick={() => (showExportMenu = false)}
+          role="presentation"
+        ></div>
+        <div class="absolute right-0 mt-1.5 w-40 bg-surface-elevated border border-subtle rounded-lg shadow-xl py-1 z-40 text-xs">
           <button
             onclick={() => {
               showExportMenu = false;
               onExport("md");
             }}
-            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2"
+            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
           >
             <FileText size={14} class="text-accent-theme" />
             <span>Markdown (.md)</span>
@@ -551,7 +557,7 @@
               showExportMenu = false;
               onExport("txt");
             }}
-            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2"
+            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
           >
             <FileText size={14} class="text-muted-theme" />
             <span>Plaintext (.txt)</span>
@@ -561,7 +567,7 @@
               showExportMenu = false;
               onExport("json");
             }}
-            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2"
+            class="w-full px-3 py-1.5 text-left hover:bg-surface-hover text-secondary-theme hover:text-primary-theme flex items-center gap-2 cursor-pointer"
           >
             <FileText size={14} class="text-emerald-400" />
             <span>Raw JSON</span>
@@ -573,7 +579,7 @@
   </header>
 
   <!-- Messages Viewport -->
-  <div bind:this={chatViewport} onscroll={handleScroll} class="flex-1 overflow-y-auto p-6 space-y-6 relative">
+  <div bind:this={chatViewport} onscroll={handleScroll} class="flex-1 overflow-y-auto p-6 space-y-6 relative z-0">
     {#if messages.length === 0 && !isStreaming}
       <div class="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-20 text-muted-theme">
         <div class="w-12 h-12 rounded-2xl bg-accent-subtle border border-accent-subtle flex items-center justify-center text-accent-theme mb-4 shadow-inner">
@@ -834,7 +840,7 @@
   {/if}
 
   <!-- Prompt Input Bar -->
-  <div class="p-4 bg-surface border-t border-subtle">
+  <div class="p-4 bg-surface border-t border-subtle relative z-20">
     <div class="max-w-4xl mx-auto relative rounded-xl border border-theme-default bg-app/80 focus-within:border-accent-theme transition-colors shadow-inner">
       
       <!-- Inline @ Mention Autocomplete Floating Popover -->
