@@ -3,7 +3,7 @@ type: product_standard
 title: Interactive Tool Permission Approval & Safe System Execution
 domain: product
 status: approved
-version: 1.0.0
+version: 1.1.0
 authority:
   level: official
   confidence: high
@@ -20,6 +20,8 @@ rule:
 
 do:
   - "Display the tool name, command parameters, and context reason clearly in the approval prompt."
+  - "Render code and file modifications with an interactive Visual Diff Viewer (`DiffViewer.svelte`) providing unified and side-by-side split modes, additions/deletions statistics, and line numbers."
+  - "Provide a toggle between 'Visual Diff' and 'Raw JSON' parameter views."
   - "Provide distinct 'Allow' and 'Deny' buttons in the chat UI."
   - "Send the decision back through `respond_tool_permission` command over ACP stdin."
   - "Log the decision and execution outcome into the chat session history."

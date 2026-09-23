@@ -16,7 +16,7 @@ A modern, blazing-fast native desktop application for interacting with the **Gem
 - **⚡ Native Agent Client Protocol (ACP)**
   - Full bidirectional JSON-RPC streaming directly over the child CLI process `stdin`/`stdout`.
   - Real-time token streaming with cancelable requests.
-  - Interactive **Tool Execution Permission Intercepts** — review and approve tool/command execution before changes occur on your machine.
+  - Interactive **Tool Execution Permission Intercepts** — review and approve tool/command execution before changes occur on your machine, featuring an integrated **Visual Code Diff Viewer** (unified and side-by-side split modes, additions/deletions statistics, and line numbers).
 
 - **🎯 Official Gemini Model Selection**
   - **Auto (Gemini 3)**: Dynamically balances between Pro and Flash models based on task complexity.

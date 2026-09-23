@@ -102,3 +102,5 @@ export interface TerminalCommandResult {
   duration_ms: number;
 }
 
+export * from "./diff";
+

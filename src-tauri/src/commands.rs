@@ -735,6 +735,51 @@ pub fn open_workspace_file(path: String, with_app: Option<String>) -> Result<(),
 }
 
 #[tauri::command]
+pub fn read_workspace_file_content(
+    state: State<AppState>,
+    workspace_id: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let workspaces = state.db.list_workspaces()?;
+    let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
+        .ok_or_else(|| "Workspace not found".to_string())?;
+
+    let root = PathBuf::from(&ws.path);
+    read_workspace_file_content_internal(&root, &relative_path)
+}
+
+pub fn read_workspace_file_content_internal(
+    root: &std::path::Path,
+    relative_path: &str,
+) -> Result<String, String> {
+    if !root.exists() || !root.is_dir() {
+        return Err("Workspace root directory does not exist".to_string());
+    }
+
+    let clean_rel = relative_path.replace('\\', "/");
+    let trimmed_rel = clean_rel.trim_start_matches('/');
+    let target = root.join(trimmed_rel);
+
+    if !target.exists() {
+        return Ok(String::new());
+    }
+
+    let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_target = target.canonicalize().map_err(|e| e.to_string())?;
+
+    if !canonical_target.starts_with(&canonical_root) {
+        return Err("Access denied: path is outside workspace root".to_string());
+    }
+
+    if canonical_target.is_dir() {
+        return Err("Target path is a directory, not a file".to_string());
+    }
+
+    std::fs::read_to_string(&canonical_target)
+        .map_err(|e| format!("Failed to read file: {}", e))
+}
+
+#[tauri::command]
 pub fn list_workspace_files(state: State<AppState>, workspace_id: String) -> Result<Vec<WorkspaceFileEntry>, String> {
     let workspaces = state.db.list_workspaces()?;
     let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
@@ -1185,6 +1230,35 @@ mod tests {
         let res = open_workspace_file(non_existent.to_string(), None);
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("File does not exist"));
+    }
+
+    #[test]
+    fn test_read_workspace_file_content() {
+        let temp_dir = std::env::temp_dir().join(format!("gemini_test_read_file_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Existing file
+        let file_path = temp_dir.join("sample.rs");
+        std::fs::write(&file_path, "fn hello_world() -> bool { true }").unwrap();
+
+        let content = read_workspace_file_content_internal(&temp_dir, "sample.rs").expect("failed to read existing file");
+        assert_eq!(content, "fn hello_world() -> bool { true }");
+
+        // 2. Subdirectory file
+        let nested_dir = temp_dir.join("src");
+        std::fs::create_dir_all(&nested_dir).unwrap();
+        let nested_file = nested_dir.join("lib.rs");
+        std::fs::write(&nested_file, "pub mod utils;").unwrap();
+
+        let nested_content = read_workspace_file_content_internal(&temp_dir, "src/lib.rs").expect("failed to read nested file");
+        assert_eq!(nested_content, "pub mod utils;");
+
+        // 3. Non-existent file returns empty string (new file creation)
+        let non_existent = read_workspace_file_content_internal(&temp_dir, "does_not_exist.txt").expect("failed non-existent check");
+        assert_eq!(non_existent, "");
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
 

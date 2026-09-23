@@ -7,6 +7,9 @@
     WorkspaceFileEntry,
     AttachmentItem,
   } from "$lib/types";
+  import { invoke } from "@tauri-apps/api/core";
+  import DiffViewer from "$lib/components/DiffViewer.svelte";
+  import { extractDiffData, type ExtractedDiffPayload } from "$lib/diff";
   import FilePickerModal from "$lib/components/FilePickerModal.svelte";
   import TerminalDrawer from "$lib/components/TerminalDrawer.svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
@@ -23,6 +26,7 @@
     XCircle,
     FileText,
     FileCode,
+    Code,
     Paperclip,
     Folder,
     File,
@@ -122,6 +126,71 @@
   }
   let isUserScrolledUp = $state(false);
   let copiedMessageId = $state<string | null>(null);
+
+  // Tool Permission Intercept & Diff State
+  let permissionTab = $state<"diff" | "params">("diff");
+  let liveOriginalContent = $state<string | null>(null);
+  let lastLoadedRequestId = $state<number | null>(null);
+
+  let extractedDiff = $derived.by<ExtractedDiffPayload | null>(() => {
+    if (!toolPermission) return null;
+    return extractDiffData(
+      toolPermission.parameters,
+      toolPermission.locations,
+      toolPermission.content,
+      toolPermission.kind,
+      toolPermission.tool_name
+    );
+  });
+
+  let effectiveOldText = $derived.by(() => {
+    if (extractedDiff?.oldText !== undefined) {
+      return extractedDiff.oldText;
+    }
+    return liveOriginalContent ?? "";
+  });
+
+  $effect(() => {
+    if (toolPermission && toolPermission.request_id !== lastLoadedRequestId) {
+      lastLoadedRequestId = toolPermission.request_id;
+      liveOriginalContent = null;
+
+      const diffInfo = extractDiffData(
+        toolPermission.parameters,
+        toolPermission.locations,
+        toolPermission.content,
+        toolPermission.kind,
+        toolPermission.tool_name
+      );
+
+      if (diffInfo.isDiffAvailable || diffInfo.toolCategory === "edit") {
+        permissionTab = "diff";
+      } else {
+        permissionTab = "params";
+      }
+
+      // If we have a file path and new text but no old text, load current file from disk
+      if (
+        workspace &&
+        diffInfo.filePath &&
+        diffInfo.newText !== undefined &&
+        diffInfo.oldText === undefined &&
+        !diffInfo.patch
+      ) {
+        invoke<string>("read_workspace_file_content", {
+          workspaceId: workspace.id,
+          relativePath: diffInfo.filePath,
+        })
+          .then((content) => {
+            liveOriginalContent = content;
+          })
+          .catch((err) => {
+            console.warn("Could not read original file for diff:", err);
+            liveOriginalContent = "";
+          });
+      }
+    }
+  });
 
   // File & Git Attachments State
   let attachments: AttachmentItem[] = $state([]);
@@ -735,7 +804,7 @@
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-start gap-3">
           <div class="p-2 rounded-lg bg-amber-500/15 text-amber-500 border border-amber-500/30 mt-0.5 shrink-0">
-            {#if toolPermission.kind === "edit"}
+            {#if toolPermission.kind === "edit" || extractedDiff?.toolCategory === "edit"}
               <FileCode size={18} />
             {:else if toolPermission.kind === "read"}
               <FileText size={18} />
@@ -759,10 +828,40 @@
             </div>
           </div>
         </div>
+
+        <!-- View Switcher Toggle (Visual Diff vs Raw Parameters) -->
+        {#if extractedDiff && (extractedDiff.isDiffAvailable || extractedDiff.toolCategory === "edit")}
+          <div class="inline-flex rounded-lg border border-theme-default bg-surface p-0.5 text-xs shrink-0 select-none">
+            <button
+              type="button"
+              onclick={() => (permissionTab = "diff")}
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors cursor-pointer {
+                permissionTab === 'diff'
+                  ? 'bg-accent-theme text-white font-medium shadow-2xs'
+                  : 'text-secondary-theme hover:text-primary-theme'
+              }"
+            >
+              <FileCode size={13} />
+              <span>Visual Diff</span>
+            </button>
+            <button
+              type="button"
+              onclick={() => (permissionTab = "params")}
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors cursor-pointer {
+                permissionTab === 'params'
+                  ? 'bg-accent-theme text-white font-medium shadow-2xs'
+                  : 'text-secondary-theme hover:text-primary-theme'
+              }"
+            >
+              <Code size={13} />
+              <span>Raw JSON</span>
+            </button>
+          </div>
+        {/if}
       </div>
 
       <!-- Locations / Target Paths -->
-      {#if toolPermission.locations && (Array.isArray(toolPermission.locations) ? toolPermission.locations.length > 0 : true)}
+      {#if toolPermission.locations && (!extractedDiff?.isDiffAvailable || permissionTab === 'params') && (Array.isArray(toolPermission.locations) ? toolPermission.locations.length > 0 : true)}
         <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono text-primary-theme">
           <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Target Location:</div>
           {#if Array.isArray(toolPermission.locations)}
@@ -779,18 +878,30 @@
         </div>
       {/if}
 
-      <!-- Command or Parameters Detail -->
-      {#if toolPermission.parameters}
-        {#if toolPermission.parameters.command || toolPermission.parameters.cmd}
-          <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono overflow-x-auto text-primary-theme">
-            <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Command:</div>
-            <code class="text-emerald-600 dark:text-emerald-400 font-semibold">{toolPermission.parameters.command || toolPermission.parameters.cmd}</code>
-          </div>
-        {:else if typeof toolPermission.parameters === 'object' && Object.keys(toolPermission.parameters).length > 0 && !toolPermission.locations}
-          <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono text-primary-theme max-h-32 overflow-y-auto">
-            <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Parameters:</div>
-            <pre class="text-[11px] whitespace-pre-wrap text-secondary-theme">{JSON.stringify(toolPermission.parameters, null, 2)}</pre>
-          </div>
+      <!-- Visual Diff Viewer or Fallback Parameters -->
+      {#if permissionTab === "diff" && extractedDiff && (extractedDiff.isDiffAvailable || extractedDiff.toolCategory === "edit")}
+        <div class="mt-3">
+          <DiffViewer
+            oldText={effectiveOldText}
+            newText={extractedDiff.newText ?? ""}
+            patch={extractedDiff.patch}
+            filePath={extractedDiff.filePath || (toolPermission.locations ? (Array.isArray(toolPermission.locations) ? (toolPermission.locations[0]?.path || toolPermission.locations[0]) : toolPermission.locations?.path || toolPermission.locations) : "")}
+          />
+        </div>
+      {:else}
+        <!-- Command or Parameters Detail -->
+        {#if toolPermission.parameters}
+          {#if toolPermission.parameters.command || toolPermission.parameters.cmd}
+            <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono overflow-x-auto text-primary-theme">
+              <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Command:</div>
+              <code class="text-emerald-600 dark:text-emerald-400 font-semibold">{toolPermission.parameters.command || toolPermission.parameters.cmd}</code>
+            </div>
+          {:else if typeof toolPermission.parameters === 'object' && Object.keys(toolPermission.parameters).length > 0}
+            <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono text-primary-theme max-h-48 overflow-y-auto">
+              <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Parameters:</div>
+              <pre class="text-[11px] whitespace-pre-wrap text-secondary-theme">{JSON.stringify(toolPermission.parameters, null, 2)}</pre>
+            </div>
+          {/if}
         {/if}
       {/if}
 
