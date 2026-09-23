@@ -1,6 +1,6 @@
 # 🚀 Gemini Desktop
 
-[![Release](https://img.shields.io/github/v/release/sureshjsreddy/gemini-desktop?style=flat-square&color=38bdf8)](https://github.com/sureshjsreddy/gemini-desktop/releases)
+[![Release](https://img.shields.io/github/v/release/Elroi-thecreator/gemini-desktop?style=flat-square&color=38bdf8)](https://github.com/Elroi-thecreator/gemini-desktop/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-blue?style=flat-square&logo=tauri)](https://v2.tauri.app)
 [![Svelte 5](https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte)](https://svelte.dev)
@@ -98,7 +98,7 @@ A modern, blazing-fast native desktop application for interacting with the **Gem
 
 Pre-built Windows binaries are automatically generated on every release:
 
-1. Visit the [**Latest Releases**](https://github.com/sureshjsreddy/gemini-desktop/releases/latest) page.
+1. Visit the [**Latest Releases**](https://github.com/Elroi-thecreator/gemini-desktop/releases/latest) page.
 2. Download either:
    - **`GeminiDesktop-Setup.exe`**: Standard Windows installer (NSIS).
    - **`Gemini Desktop_x64_en-US.msi`**: Windows MSI installer.
@@ -134,7 +134,7 @@ Pre-built Windows binaries are automatically generated on every release:
 
 ### 2. Clone & Install
 ```bash
-git clone https://github.com/sureshjsreddy/gemini-desktop.git
+git clone https://github.com/Elroi-thecreator/gemini-desktop.git
 cd gemini-desktop
 
 # Install frontend dependencies
