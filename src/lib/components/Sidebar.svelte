@@ -24,6 +24,8 @@
     activeWorkspace = null,
     sessions = [],
     activeSession = null,
+    sessionStreams = {},
+    sessionToolPermissions = {},
     onSelectWorkspace,
     onSelectSession,
     onNewSession,
@@ -42,6 +44,8 @@
     activeWorkspace: Workspace | null;
     sessions: Session[];
     activeSession: Session | null;
+    sessionStreams?: Record<string, { text: string; isStreaming: boolean }>;
+    sessionToolPermissions?: Record<string, any>;
     onSelectWorkspace: (ws: Workspace) => void;
     onSelectSession: (s: Session) => void;
     onNewSession: () => void;
@@ -285,7 +289,17 @@
           }}
         >
           <div class="flex items-center gap-2 truncate flex-1 mr-1">
-            <MessageSquare size={14} class="shrink-0 {activeSession?.id === session.id ? 'text-accent-theme' : 'text-muted-theme'}" />
+            {#if sessionToolPermissions[session.id]}
+              <Tooltip text="Needs Permission Approval" position="right">
+                <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse"></span>
+              </Tooltip>
+            {:else if sessionStreams[session.id]?.isStreaming}
+              <Tooltip text="Generating response..." position="right">
+                <Sparkles size={13} class="shrink-0 text-accent-theme animate-spin" />
+              </Tooltip>
+            {:else}
+              <MessageSquare size={14} class="shrink-0 {activeSession?.id === session.id ? 'text-accent-theme' : 'text-muted-theme'}" />
+            {/if}
             <span class="truncate">{session.title}</span>
           </div>
 

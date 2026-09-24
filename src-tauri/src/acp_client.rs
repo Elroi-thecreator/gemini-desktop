@@ -70,6 +70,7 @@ pub struct AcpSession {
     pending_permissions: Arc<StdMutex<HashMap<u64, Vec<PermissionOption>>>>,
     local_to_acp: Arc<StdMutex<HashMap<String, String>>>,
     acp_to_local: Arc<StdMutex<HashMap<String, String>>>,
+    current_session_id: Arc<StdMutex<Option<String>>>,
 }
 
 impl AcpSession {
@@ -81,7 +82,18 @@ impl AcpSession {
             pending_permissions: Arc::new(StdMutex::new(HashMap::new())),
             local_to_acp: Arc::new(StdMutex::new(HashMap::new())),
             acp_to_local: Arc::new(StdMutex::new(HashMap::new())),
+            current_session_id: Arc::new(StdMutex::new(None)),
         }
+    }
+
+    pub fn set_current_session_id(&self, session_id: &str) {
+        if let Ok(mut guard) = self.current_session_id.lock() {
+            *guard = Some(session_id.to_string());
+        }
+    }
+
+    pub fn get_current_session_id(&self) -> Option<String> {
+        self.current_session_id.lock().ok().and_then(|g| g.clone())
     }
 
     pub async fn set_stdin(&self, writer: Box<dyn Write + Send>) {
@@ -107,7 +119,17 @@ impl AcpSession {
     }
 
     pub fn get_local_session_id(&self, acp_id: &str) -> Option<String> {
-        self.acp_to_local.lock().ok()?.get(acp_id).cloned()
+        if let Ok(a2l) = self.acp_to_local.lock() {
+            if let Some(local) = a2l.get(acp_id) {
+                return Some(local.clone());
+            }
+        }
+        if let Ok(l2a) = self.local_to_acp.lock() {
+            if l2a.contains_key(acp_id) {
+                return Some(acp_id.to_string());
+            }
+        }
+        None
     }
 
     pub fn remove_session(&self, local_id: &str) {
@@ -126,6 +148,9 @@ impl AcpSession {
         }
         if let Ok(mut a2l) = self.acp_to_local.lock() {
             a2l.clear();
+        }
+        if let Ok(mut cs) = self.current_session_id.lock() {
+            *cs = None;
         }
     }
 
@@ -297,6 +322,11 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
         return;
     }
 
+    // Prioritize dynamically set current session ID over static thread capture
+    let active_session_id = acp_session
+        .get_current_session_id()
+        .unwrap_or_else(|| active_session_id.to_string());
+
     // Try parsing as JSON-RPC object
     if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
         // 1. Resolve pending request if this response corresponds to one (e.g. initialize, session/new)
@@ -324,7 +354,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                     let matched_session_id = val.pointer("/params/sessionId")
                         .and_then(|s| s.as_str())
                         .and_then(|acp_sid| acp_session.get_local_session_id(acp_sid))
-                        .unwrap_or_else(|| active_session_id.to_string());
+                        .unwrap_or_else(|| active_session_id.clone());
 
                     // Check standard ACP format (update.content.text or update.delta) as well as flat fields
                     let delta = val.pointer("/params/update/content/text")
@@ -355,7 +385,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                     let session_id = val.pointer("/params/sessionId")
                         .and_then(|s| s.as_str())
                         .and_then(|acp_sid| acp_session.get_local_session_id(acp_sid))
-                        .unwrap_or_else(|| active_session_id.to_string());
+                        .unwrap_or_else(|| active_session_id.clone());
 
                     let title = val.pointer("/params/toolCall/title")
                         .or_else(|| val.pointer("/params/title"))
@@ -458,7 +488,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
             let matched_session_id = val.pointer("/result/sessionId")
                 .and_then(|s| s.as_str())
                 .and_then(|acp_sid| acp_session.get_local_session_id(acp_sid))
-                .unwrap_or_else(|| active_session_id.to_string());
+                .unwrap_or_else(|| active_session_id.clone());
 
             if let Some(text) = val.pointer("/result/content/text")
                 .or_else(|| val.pointer("/result/content"))
@@ -497,7 +527,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
 
     // Fallback: If CLI outputs raw streaming lines or debug logs, emit as text chunk
     let _ = app_handle.emit("acp-chunk", StreamChunkPayload {
-        session_id: active_session_id.to_string(),
+        session_id: active_session_id,
         delta: format!("{}\n", trimmed),
         is_done: false,
     });

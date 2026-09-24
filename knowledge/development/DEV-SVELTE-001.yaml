@@ -3,7 +3,7 @@ type: development_standard
 title: Svelte 5 Runes State Management & Tailwind CSS v4 Component Standard
 domain: development
 status: approved
-version: 1.0.0
+version: 1.1.0
 authority:
   level: official
   confidence: high
@@ -23,6 +23,7 @@ do:
   - "Use Tailwind CSS v4 theme colors (`slate-*`, `sky-*`, `emerald-*`, `rose-*`) for consistent dark-mode UI design."
   - "Sanitize and render markdown safely with code syntax highlighting using `marked` and `highlight.js`."
   - "Ensure streaming token updates append smoothly without triggering layout jank or memory leaks."
+  - "Isolate live streaming responses and tool approval requests per-session using session-keyed state (`sessionStreams`, `sessionToolPermissions`) so background stream completion never leaks across active chat session switches."
   - "Use `dialogManager` (`dialog.alert`, `dialog.confirm`, `dialog.prompt`) with `DialogModal.svelte` for asynchronous, theme-adaptive user confirmations instead of browser dialogs."
   - "Ensure all dialog modals enforce strict accessibility: backdrop has `role=\"presentation\"` and `onkeydown` Escape handler; inner card has `role=\"dialog\"`, `aria-modal=\"true\"`, `tabindex=\"-1\"`, and `onkeydown={(e) => e.stopPropagation()}`."
   - "Replace HTML `autofocus` with programmatic focus inside `$effect` with a small `setTimeout` to eliminate `a11y_autofocus` compiler warnings."

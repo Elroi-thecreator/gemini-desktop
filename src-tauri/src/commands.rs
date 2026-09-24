@@ -214,6 +214,9 @@ pub async fn send_prompt(
     };
     state.db.save_message(user_msg)?;
 
+    // Update active session in ACP session manager so background stream readers route events to this session
+    state.acp_session.set_current_session_id(&session_id);
+
     // 2. Determine workspace path
     let workspaces = state.db.list_workspaces()?;
     let ws = workspaces.into_iter().find(|w| w.id == workspace_id);

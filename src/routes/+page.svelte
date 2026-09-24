@@ -31,11 +31,22 @@
   let messages: Message[] = $state([]);
   let promptTemplates: PromptTemplate[] = $state([]);
   let workspaceFiles: WorkspaceFileEntry[] = $state([]);
-
-  let isStreaming = $state(false);
-  let streamingText = $state("");
-  let toolPermission: ToolPermissionPayload | null = $state(null);
+  // Per-session streaming and permission isolation (prevents cross-session leakage)
+  let sessionStreams: Record<string, { text: string; isStreaming: boolean }> = $state({});
+  let sessionToolPermissions: Record<string, ToolPermissionPayload> = $state({});
+  let activeStreamingSessionId: string | null = $state(null);
   let envStatus: GeminiEnvStatus | null = $state(null);
+
+  // Derived reactive properties for currently viewed session
+  let isCurrentSessionStreaming = $derived(
+    activeSession ? (sessionStreams[activeSession.id]?.isStreaming ?? false) : false
+  );
+  let currentStreamingText = $derived(
+    activeSession ? (sessionStreams[activeSession.id]?.text ?? "") : ""
+  );
+  let currentToolPermission = $derived(
+    activeSession ? (sessionToolPermissions[activeSession.id] ?? null) : null
+  );
 
   // Modals & Panels
   let showSearchModal = $state(false);
@@ -87,12 +98,36 @@
     // 4. Listen to Tauri backend ACP events
     unlistenChunk = await listen<{ session_id: string; delta: string; is_done: boolean }>(
       "acp-chunk",
-      (event) => {
-        const { delta, is_done } = event.payload;
-        streamingText += delta;
+      async (event) => {
+        const { session_id, delta, is_done } = event.payload;
+
+        // Resolve which session this chunk belongs to:
+        let targetId = session_id;
+        if (!targetId || !sessionStreams[targetId]) {
+          if (activeStreamingSessionId && sessionStreams[activeStreamingSessionId]) {
+            targetId = activeStreamingSessionId;
+          } else {
+            const activeStreaming = Object.keys(sessionStreams).filter(
+              (id) => sessionStreams[id]?.isStreaming
+            );
+            if (activeStreaming.length === 1) {
+              targetId = activeStreaming[0];
+            } else if (activeSession && sessionStreams[activeSession.id]) {
+              targetId = activeSession.id;
+            }
+          }
+        }
+
+        if (!targetId) return;
+
+        if (!sessionStreams[targetId]) {
+          sessionStreams[targetId] = { text: "", isStreaming: true };
+        }
+
+        sessionStreams[targetId].text += delta;
 
         if (is_done) {
-          finishStreaming();
+          await finishSessionStreaming(targetId);
         }
       }
     );
@@ -100,20 +135,33 @@
     unlistenTool = await listen<ToolPermissionPayload>(
       "acp-tool-permission",
       (event) => {
-        toolPermission = event.payload;
+        const payload = event.payload;
+        let sid = payload.session_id;
+        if (!sid || sid === "default") {
+          sid = activeStreamingSessionId || activeSession?.id || "default";
+        }
+        sessionToolPermissions[sid] = payload;
       }
     );
 
-    unlistenError = await listen<any>("acp-error", (event) => {
-      const payloadStr = JSON.stringify(event.payload || "");
+    unlistenError = await listen<any>("acp-error", async (event) => {
+      const payload = event.payload;
+      const payloadStr = JSON.stringify(payload || "");
       if (payloadStr.toLowerCase().includes("cancel")) {
-        console.warn("Ignored cancellation signal:", event.payload);
-        finishStreaming();
+        console.warn("Ignored cancellation signal:", payload);
         return;
       }
-      console.error("ACP Error:", event.payload);
-      streamingText += `\n\n**Error:** ${payloadStr}`;
-      finishStreaming();
+      console.error("ACP Error:", payload);
+
+      let targetId = payload?.sessionId || payload?.session_id;
+      if (!targetId || !sessionStreams[targetId]) {
+        targetId = activeStreamingSessionId || (activeSession?.id ?? "");
+      }
+
+      if (targetId && sessionStreams[targetId]) {
+        sessionStreams[targetId].text += `\n\n**Error:** ${payloadStr}`;
+        await finishSessionStreaming(targetId);
+      }
     });
 
     window.addEventListener("keydown", handleGlobalShortcuts);
@@ -186,6 +234,7 @@
   }
 
   async function selectSession(session: Session) {
+    if (activeSession?.id === session.id) return;
     activeSession = session;
     messages = await invoke<Message[]>("get_session_messages", { sessionId: session.id });
   }
@@ -219,6 +268,23 @@
       isDestructive: true,
     });
     if (!confirmed) return;
+
+    // Clean up any streaming and permission state for deleted session
+    if (sessionStreams[session.id]) {
+      try {
+        await invoke("cancel_prompt", { requestId: 1, sessionId: session.id });
+      } catch (e) {
+        // ignore
+      }
+      delete sessionStreams[session.id];
+    }
+    if (sessionToolPermissions[session.id]) {
+      delete sessionToolPermissions[session.id];
+    }
+    if (activeStreamingSessionId === session.id) {
+      activeStreamingSessionId = null;
+    }
+
     await invoke("delete_session", { sessionId: session.id });
     sessions = sessions.filter((s) => s.id !== session.id);
     if (activeSession?.id === session.id) {
@@ -239,70 +305,118 @@
     }
     if (!activeSession) return;
 
+    const targetSessionId = activeSession.id;
+
+    // Check if another session is already actively streaming
+    const busySessionId = Object.keys(sessionStreams).find(
+      (id) => id !== targetSessionId && sessionStreams[id]?.isStreaming
+    );
+    if (busySessionId) {
+      const busySession = sessions.find((s) => s.id === busySessionId);
+      const busyTitle = busySession?.title || "another conversation";
+      await dialogManager.alert(
+        `Gemini CLI is currently generating a response in "${busyTitle}". Please wait for it to finish or stop it before sending a new prompt.`,
+        "Gemini Generating"
+      );
+      return;
+    }
+
     // Auto-update title if it's default
     if (activeSession.title === "New Conversation") {
       const summary = prompt.substring(0, 32) + (prompt.length > 32 ? "..." : "");
-      await invoke("rename_session", { sessionId: activeSession.id, title: summary });
+      await invoke("rename_session", { sessionId: targetSessionId, title: summary });
       activeSession.title = summary;
       sessions = [...sessions];
     }
 
-    // Add user message to UI immediately
+    // Add user message to UI immediately if active
     const userMsg: Message = {
       id: "temp-" + Date.now(),
-      session_id: activeSession.id,
+      session_id: targetSessionId,
       role: "user",
       content: prompt,
       token_count: 0,
       created_at: new Date().toISOString(),
     };
-    messages = [...messages, userMsg];
+    if (activeSession?.id === targetSessionId) {
+      messages = [...messages, userMsg];
+    }
 
-    isStreaming = true;
-    streamingText = "";
+    // Initialize session stream state
+    activeStreamingSessionId = targetSessionId;
+    sessionStreams[targetSessionId] = {
+      text: "",
+      isStreaming: true,
+    };
 
     try {
       await invoke("send_prompt", {
-        sessionId: activeSession.id,
+        sessionId: targetSessionId,
         workspaceId: activeWorkspace.id,
         prompt,
         model: activeWorkspace.model,
       });
     } catch (err: any) {
-      streamingText = `**Error starting prompt:** ${err?.toString() || err}`;
-      finishStreaming();
+      const errMsg = `**Error starting prompt:** ${err?.toString() || err}`;
+      if (sessionStreams[targetSessionId]) {
+        sessionStreams[targetSessionId].text = errMsg;
+      }
+      await finishSessionStreaming(targetSessionId);
     }
   }
 
-  async function finishStreaming() {
-    isStreaming = false;
-    if (activeSession && streamingText) {
+  async function finishSessionStreaming(targetSessionId: string) {
+    const stream = sessionStreams[targetSessionId];
+    const textToSave = stream?.text || "";
+
+    if (activeStreamingSessionId === targetSessionId) {
+      activeStreamingSessionId = null;
+    }
+
+    if (sessionStreams[targetSessionId]) {
+      sessionStreams[targetSessionId].isStreaming = false;
+    }
+
+    if (textToSave) {
       const assistantMsg: Message = {
         id: "msg-" + Date.now(),
-        session_id: activeSession.id,
+        session_id: targetSessionId, // STRICTLY saved to initiating session!
         role: "assistant",
-        content: streamingText,
-        token_count: Math.ceil(streamingText.length / 4),
+        content: textToSave,
+        token_count: Math.ceil(textToSave.length / 4),
         created_at: new Date().toISOString(),
       };
-      await invoke("save_message", { msg: assistantMsg });
-      messages = [...messages, assistantMsg];
-      streamingText = "";
+
+      try {
+        await invoke("save_message", { msg: assistantMsg });
+      } catch (e) {
+        console.error("Failed to save assistant message:", e);
+      }
+
+      // Only update on-screen `messages` if the user is currently viewing this exact session
+      if (activeSession?.id === targetSessionId) {
+        messages = [...messages, assistantMsg];
+      }
     }
+
+    delete sessionStreams[targetSessionId];
   }
 
   async function handleCancelPrompt() {
-    isStreaming = false;
+    if (!activeSession) return;
+    const targetSessionId = activeSession.id;
     try {
-      await invoke("cancel_prompt", { requestId: 1, sessionId: activeSession?.id });
+      await invoke("cancel_prompt", { requestId: 1, sessionId: targetSessionId });
     } catch (e) {
       console.warn("Cancel signal error:", e);
     }
-    finishStreaming();
+    await finishSessionStreaming(targetSessionId);
   }
 
   async function handleToolResponse(requestId: number, optionId?: string, allowed: boolean = true) {
-    toolPermission = null;
+    if (activeSession && sessionToolPermissions[activeSession.id]) {
+      delete sessionToolPermissions[activeSession.id];
+    }
     try {
       await invoke("respond_tool_permission", { requestId, optionId, allowed });
     } catch (e) {
@@ -363,6 +477,8 @@
       {activeWorkspace}
       {sessions}
       {activeSession}
+      {sessionStreams}
+      {sessionToolPermissions}
       {envStatus}
       onToggle={() => (showSidebar = false)}
       onSelectWorkspace={selectWorkspace}
@@ -386,9 +502,9 @@
     session={activeSession}
     {workspaceFiles}
     {messages}
-    {isStreaming}
-    {streamingText}
-    {toolPermission}
+    isStreaming={isCurrentSessionStreaming}
+    streamingText={currentStreamingText}
+    toolPermission={currentToolPermission}
     {showSidebar}
     onToggleSidebar={() => (showSidebar = !showSidebar)}
     bind:showTerminalDrawer
