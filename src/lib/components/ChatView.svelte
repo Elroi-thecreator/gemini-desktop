@@ -139,7 +139,8 @@
       toolPermission.locations,
       toolPermission.content,
       toolPermission.kind,
-      toolPermission.tool_name
+      toolPermission.tool_name,
+      toolPermission.title
     );
   });
 
@@ -160,7 +161,8 @@
         toolPermission.locations,
         toolPermission.content,
         toolPermission.kind,
-        toolPermission.tool_name
+        toolPermission.tool_name,
+        toolPermission.title
       );
 
       if (diffInfo.isDiffAvailable || diffInfo.toolCategory === "edit") {
@@ -171,14 +173,13 @@
 
       // If we have a file path and new text but no old text, load current file from disk
       if (
-        workspace &&
         diffInfo.filePath &&
         diffInfo.newText !== undefined &&
         diffInfo.oldText === undefined &&
         !diffInfo.patch
       ) {
         invoke<string>("read_workspace_file_content", {
-          workspaceId: workspace.id,
+          workspaceId: workspace ? workspace.id : "",
           relativePath: diffInfo.filePath,
         })
           .then((content) => {

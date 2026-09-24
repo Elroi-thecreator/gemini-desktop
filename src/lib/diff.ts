@@ -307,35 +307,66 @@ export function extractDiffData(
   locations?: any,
   content?: any,
   toolKind?: string,
-  toolName?: string
+  toolName?: string,
+  title?: string
 ): ExtractedDiffPayload {
   const normKind = (toolKind || "").toLowerCase();
   const normName = (toolName || "").toLowerCase();
 
-  // Extract file path from locations or parameters
+  // 1. Unwrap and normalize parameters (handling JSON strings and nested input/rawInput/args)
+  let p: any = parameters;
+  if (typeof p === "string" && (p.trim().startsWith("{") || p.trim().startsWith("["))) {
+    try {
+      const parsed = JSON.parse(p);
+      if (parsed && typeof parsed === "object") {
+        p = parsed;
+      }
+    } catch {
+      // Keep p as string
+    }
+  }
+
+  if (p && typeof p === "object") {
+    if (p.input && typeof p.input === "object") {
+      p = { ...p.input, ...p };
+    } else if (p.rawInput && typeof p.rawInput === "object") {
+      p = { ...p.rawInput, ...p };
+    } else if (p.args && typeof p.args === "object") {
+      p = { ...p.args, ...p };
+    } else if (p.arguments && typeof p.arguments === "object") {
+      p = { ...p.arguments, ...p };
+    } else if (p.parameters && typeof p.parameters === "object") {
+      p = { ...p.parameters, ...p };
+    }
+  }
+
+  // 2. Extract file path from locations, parameters, or title
   let filePath: string | undefined;
   if (Array.isArray(locations) && locations.length > 0) {
     const first = locations[0];
-    filePath = typeof first === "string" ? first : first?.path || first?.uri;
+    filePath = typeof first === "string" ? first : first?.path || first?.uri || first?.file;
   } else if (typeof locations === "string") {
     filePath = locations;
   } else if (locations && typeof locations === "object") {
-    filePath = locations.path || locations.uri;
+    filePath = locations.path || locations.uri || locations.file;
   }
 
-  if (!filePath && parameters && typeof parameters === "object") {
+  if (!filePath && p && typeof p === "object") {
     filePath =
-      parameters.path ||
-      parameters.filePath ||
-      parameters.file_path ||
-      parameters.file ||
-      parameters.targetFile ||
-      parameters.target_file ||
-      parameters.fileName ||
-      parameters.file_name;
+      p.path ||
+      p.filePath ||
+      p.file_path ||
+      p.file ||
+      p.targetFile ||
+      p.target_file ||
+      p.fileName ||
+      p.file_name ||
+      p.relativePath ||
+      p.relative_path ||
+      p.location;
   }
 
-  // Check command execution
+  // 3. Check command execution
   if (
     normKind === "execute" ||
     normKind === "command" ||
@@ -345,10 +376,10 @@ export function extractDiffData(
     normName.includes("run")
   ) {
     const cmd =
-      parameters?.command ||
-      parameters?.cmd ||
-      parameters?.script ||
-      (typeof parameters === "string" ? parameters : undefined);
+      p?.command ||
+      p?.cmd ||
+      p?.script ||
+      (typeof p === "string" ? p : undefined);
     if (cmd) {
       return {
         isDiffAvailable: false,
@@ -358,12 +389,28 @@ export function extractDiffData(
     }
   }
 
-  // Check unified patch in parameters or content
-  const possiblePatch =
-    parameters?.patch ||
-    parameters?.diff ||
-    (typeof content === "string" && content.includes("@@") ? content : undefined) ||
-    (typeof parameters === "string" && parameters.includes("@@") ? parameters : undefined);
+  // 4. Check unified patch in parameters or content
+  let possiblePatch =
+    p?.patch ||
+    p?.diff ||
+    (typeof p === "string" && (p.includes("@@") || p.startsWith("---")) ? p : undefined);
+
+  if (!possiblePatch && typeof content === "string" && (content.includes("@@") || content.startsWith("---"))) {
+    possiblePatch = content;
+  } else if (!possiblePatch && Array.isArray(content)) {
+    for (const item of content) {
+      if (item && typeof item === "object") {
+        if (item.type === "diff" && typeof item.text === "string") {
+          possiblePatch = item.text;
+          break;
+        }
+        if (item.type === "text" && typeof item.text === "string" && (item.text.includes("@@") || item.text.startsWith("---"))) {
+          possiblePatch = item.text;
+          break;
+        }
+      }
+    }
+  }
 
   if (possiblePatch && typeof possiblePatch === "string" && (possiblePatch.includes("@@") || possiblePatch.startsWith("---"))) {
     return {
@@ -374,26 +421,84 @@ export function extractDiffData(
     };
   }
 
-  // Check oldText / newText pairs
+  // 5. Check multi-edit array (e.g. edits: [{ old_string, new_string }])
+  if (Array.isArray(p?.edits) && p.edits.length > 0) {
+    const oldParts: string[] = [];
+    const newParts: string[] = [];
+    for (const edit of p.edits) {
+      const o =
+        edit.old_string ??
+        edit.oldString ??
+        edit.oldText ??
+        edit.old_text ??
+        edit.old_str ??
+        edit.oldStr ??
+        edit.search ??
+        edit.find ??
+        edit.before ??
+        edit.targetContent;
+      const n =
+        edit.new_string ??
+        edit.newString ??
+        edit.newText ??
+        edit.new_text ??
+        edit.new_str ??
+        edit.newStr ??
+        edit.replace ??
+        edit.after ??
+        edit.replacementContent;
+      if (o !== undefined) oldParts.push(String(o));
+      if (n !== undefined) newParts.push(String(n));
+    }
+
+    if (newParts.length > 0) {
+      return {
+        isDiffAvailable: true,
+        oldText: oldParts.length > 0 ? oldParts.join("\n\n// ...\n\n") : undefined,
+        newText: newParts.join("\n\n// ...\n\n"),
+        filePath,
+        toolCategory: "edit",
+      };
+    }
+  }
+
+  // 6. Check oldText / newText pairs across all known parameter formats
   const oldText =
-    parameters?.oldText ??
-    parameters?.old_content ??
-    parameters?.oldContent ??
-    parameters?.targetContent ??
-    parameters?.target_content ??
-    parameters?.old_str ??
-    parameters?.oldString;
+    p?.old_string ??
+    p?.oldString ??
+    p?.oldText ??
+    p?.old_text ??
+    p?.old_str ??
+    p?.oldStr ??
+    p?.old_content ??
+    p?.oldContent ??
+    p?.targetContent ??
+    p?.target_content ??
+    p?.search ??
+    p?.find ??
+    p?.before ??
+    p?.from ??
+    p?.original ??
+    p?.source;
 
   const newText =
-    parameters?.newText ??
-    parameters?.new_content ??
-    parameters?.newContent ??
-    parameters?.replacementContent ??
-    parameters?.replacement_content ??
-    parameters?.new_str ??
-    parameters?.newString;
+    p?.new_string ??
+    p?.newString ??
+    p?.newText ??
+    p?.new_text ??
+    p?.new_str ??
+    p?.newStr ??
+    p?.new_content ??
+    p?.newContent ??
+    p?.replacementContent ??
+    p?.replacement_content ??
+    p?.replace ??
+    p?.after ??
+    p?.to ??
+    p?.modified ??
+    p?.target;
 
-  if (newText !== undefined && (oldText !== undefined || normKind === "edit" || normName.includes("edit") || normName.includes("replace"))) {
+  if (newText !== undefined && (oldText !== undefined || normKind === "edit" || normName.includes("edit") || normName.includes("replace") || normName.includes("modify"))) {
     return {
       isDiffAvailable: true,
       oldText: oldText !== undefined ? String(oldText) : undefined,
@@ -403,14 +508,16 @@ export function extractDiffData(
     };
   }
 
-  // Check whole file content write (e.g. write_to_file, create_file)
+  // 7. Check whole file content write (e.g. write_to_file, create_file)
   const fullContent =
-    parameters?.content ??
-    parameters?.code ??
-    parameters?.file_text ??
-    parameters?.codeContent;
+    p?.content ??
+    p?.code ??
+    p?.file_text ??
+    p?.codeContent ??
+    p?.newContent ??
+    p?.text;
 
-  if (fullContent !== undefined && filePath) {
+  if (fullContent !== undefined && (filePath || normKind === "edit" || normName.includes("write") || normName.includes("create") || normName.includes("edit"))) {
     return {
       isDiffAvailable: true,
       newText: String(fullContent),
@@ -419,12 +526,40 @@ export function extractDiffData(
     };
   }
 
+  // 8. Fallback: Parse title if formatted as "<filepath>: <old> => <new>" or "<old> => <new>"
+  if (title && typeof title === "string") {
+    const arrowIdx = title.indexOf("=>");
+    if (arrowIdx !== -1) {
+      const leftPart = title.slice(0, arrowIdx).trim();
+      const rightPart = title.slice(arrowIdx + 2).trim();
+      const colonIdx = leftPart.indexOf(":");
+      let extractedOld = leftPart;
+      if (colonIdx !== -1) {
+        if (!filePath) {
+          filePath = leftPart.slice(0, colonIdx).trim();
+        }
+        extractedOld = leftPart.slice(colonIdx + 1).trim();
+      }
+      const extractedNew = rightPart;
+      if (extractedOld || extractedNew) {
+        return {
+          isDiffAvailable: true,
+          oldText: extractedOld,
+          newText: extractedNew,
+          filePath,
+          toolCategory: "edit",
+        };
+      }
+    }
+  }
+
   const isEdit =
     normKind === "edit" ||
     normName.includes("edit") ||
     normName.includes("write") ||
     normName.includes("patch") ||
-    normName.includes("modify");
+    normName.includes("modify") ||
+    normName.includes("create");
 
   return {
     isDiffAvailable: false,

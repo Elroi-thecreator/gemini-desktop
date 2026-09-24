@@ -180,7 +180,14 @@
       <!-- UNIFIED VIEW -->
       <table class="w-full border-collapse font-mono text-[11px] leading-relaxed">
         <tbody>
-          {#each diff.hunks as hunk, hunkIdx}
+          {#if diff.hunks.length === 0 || totalDiffLines === 0}
+            <tr>
+              <td colspan="3" class="px-4 py-8 text-center text-muted-theme text-xs select-none">
+                No differences detected between original and modified content.
+              </td>
+            </tr>
+          {:else}
+            {#each diff.hunks as hunk, hunkIdx}
             {#if hunk.header}
               <tr class="bg-accent-subtle/40 text-accent-theme select-none border-y border-accent-subtle/50">
                 <td colspan="3" class="px-3 py-1 font-semibold text-[10px] text-accent-theme/90">
@@ -217,6 +224,7 @@
               </tr>
             {/each}
           {/each}
+          {/if}
         </tbody>
       </table>
     {:else}
@@ -231,7 +239,14 @@
           </tr>
         </thead>
         <tbody>
-          {#each splitRows as row, rIdx}
+          {#if splitRows.length === 0}
+            <tr>
+              <td colspan="4" class="px-4 py-8 text-center text-muted-theme text-xs select-none">
+                No differences detected between original and modified content.
+              </td>
+            </tr>
+          {:else}
+            {#each splitRows as row, rIdx}
             {#if row.type === "header"}
               <tr class="bg-accent-subtle/40 text-accent-theme select-none border-y border-accent-subtle/50">
                 <td colspan="4" class="px-3 py-1 font-semibold text-[10px] text-accent-theme/90">
@@ -272,6 +287,7 @@
               </tr>
             {/if}
           {/each}
+          {/if}
         </tbody>
       </table>
     {/if}

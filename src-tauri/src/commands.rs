@@ -743,18 +743,42 @@ pub fn read_workspace_file_content(
     workspace_id: String,
     relative_path: String,
 ) -> Result<String, String> {
-    let workspaces = state.db.list_workspaces()?;
-    let ws = workspaces.into_iter().find(|w| w.id == workspace_id)
-        .ok_or_else(|| "Workspace not found".to_string())?;
+    // 1. Direct absolute path check (e.g. tool permission requests targeting absolute paths)
+    let raw_path = PathBuf::from(&relative_path);
+    if raw_path.is_absolute() && raw_path.is_file() {
+        return std::fs::read_to_string(&raw_path)
+            .map_err(|e| format!("Failed to read file: {}", e));
+    }
 
-    let root = PathBuf::from(&ws.path);
-    read_workspace_file_content_internal(&root, &relative_path)
+    // 2. If workspace_id is provided, resolve relative to workspace root
+    if !workspace_id.is_empty() {
+        if let Ok(workspaces) = state.db.list_workspaces() {
+            if let Some(ws) = workspaces.into_iter().find(|w| w.id == workspace_id) {
+                let root = PathBuf::from(&ws.path);
+                return read_workspace_file_content_internal(&root, &relative_path);
+            }
+        }
+    }
+
+    // 3. Fallback: check if relative_path exists relative to current working directory
+    if raw_path.is_file() {
+        return std::fs::read_to_string(&raw_path)
+            .map_err(|e| format!("Failed to read file: {}", e));
+    }
+
+    Ok(String::new())
 }
 
 pub fn read_workspace_file_content_internal(
     root: &std::path::Path,
     relative_path: &str,
 ) -> Result<String, String> {
+    let raw_path = std::path::Path::new(relative_path);
+    if raw_path.is_absolute() && raw_path.is_file() {
+        return std::fs::read_to_string(raw_path)
+            .map_err(|e| format!("Failed to read file: {}", e));
+    }
+
     if !root.exists() || !root.is_dir() {
         return Err("Workspace root directory does not exist".to_string());
     }
@@ -767,15 +791,17 @@ pub fn read_workspace_file_content_internal(
         return Ok(String::new());
     }
 
+    if target.is_dir() {
+        return Err("Target path is a directory, not a file".to_string());
+    }
+
     let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
     let canonical_target = target.canonicalize().map_err(|e| e.to_string())?;
 
     if !canonical_target.starts_with(&canonical_root) {
-        return Err("Access denied: path is outside workspace root".to_string());
-    }
-
-    if canonical_target.is_dir() {
-        return Err("Target path is a directory, not a file".to_string());
+        // If outside workspace root, allow read-only preview if target is an existing file
+        return std::fs::read_to_string(&canonical_target)
+            .map_err(|e| format!("Failed to read file: {}", e));
     }
 
     std::fs::read_to_string(&canonical_target)

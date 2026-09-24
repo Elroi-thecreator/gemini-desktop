@@ -411,14 +411,28 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                         .or_else(|| kind.clone())
                         .unwrap_or_else(|| "Tool Execution".to_string());
 
-                    let parameters = val.pointer("/params/toolCall/rawInput")
+                    let parameters = val.pointer("/params/toolCall/input")
+                        .or_else(|| val.pointer("/params/toolCall/rawInput"))
+                        .or_else(|| val.pointer("/params/toolCall/arguments"))
+                        .or_else(|| val.pointer("/params/toolCall/args"))
+                        .or_else(|| val.pointer("/params/toolCall/parameters"))
+                        .or_else(|| val.pointer("/params/toolCall/params"))
+                        .or_else(|| val.pointer("/params/input"))
+                        .or_else(|| val.pointer("/params/rawInput"))
                         .or_else(|| val.pointer("/params/arguments"))
+                        .or_else(|| val.pointer("/params/args"))
                         .or_else(|| val.pointer("/params/parameters"))
+                        .or_else(|| val.pointer("/params/params"))
+                        .or_else(|| val.pointer("/params/toolCall"))
                         .cloned()
                         .unwrap_or(Value::Null);
 
                     let locations = val.pointer("/params/toolCall/locations")
                         .or_else(|| val.pointer("/params/locations"))
+                        .or_else(|| val.pointer("/params/toolCall/location"))
+                        .or_else(|| val.pointer("/params/location"))
+                        .or_else(|| val.pointer("/params/toolCall/path"))
+                        .or_else(|| val.pointer("/params/path"))
                         .cloned();
 
                     let content = val.pointer("/params/toolCall/content")
