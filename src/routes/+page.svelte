@@ -402,15 +402,18 @@
     delete sessionStreams[targetSessionId];
   }
 
-  async function handleCancelPrompt() {
-    if (!activeSession) return;
-    const targetSessionId = activeSession.id;
+  async function handleCancelSessionPrompt(targetSessionId: string) {
     try {
       await invoke("cancel_prompt", { requestId: 1, sessionId: targetSessionId });
     } catch (e) {
       console.warn("Cancel signal error:", e);
     }
     await finishSessionStreaming(targetSessionId);
+  }
+
+  async function handleCancelPrompt() {
+    if (!activeSession) return;
+    await handleCancelSessionPrompt(activeSession.id);
   }
 
   async function handleToolResponse(requestId: number, optionId?: string, allowed: boolean = true) {
@@ -486,6 +489,7 @@
       onNewSession={handleNewSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
+      onCancelSession={handleCancelSessionPrompt}
       onOpenSearch={() => (showSearchModal = true)}
       onOpenTemplates={() => (showTemplatesModal = true)}
       onOpenWorkspaceModal={() => (showWorkspaceModal = true)}

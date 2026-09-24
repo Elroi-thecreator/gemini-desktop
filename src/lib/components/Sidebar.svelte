@@ -16,6 +16,7 @@
     Server,
     Terminal,
     PanelLeftClose,
+    Square,
   } from "lucide-svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
 
@@ -31,6 +32,7 @@
     onNewSession,
     onRenameSession,
     onDeleteSession,
+    onCancelSession,
     onOpenSearch,
     onOpenTemplates,
     onOpenWorkspaceModal,
@@ -51,6 +53,7 @@
     onNewSession: () => void;
     onRenameSession: (s: Session) => void;
     onDeleteSession: (s: Session) => void;
+    onCancelSession?: (sessionId: string) => void;
     onOpenSearch: () => void;
     onOpenTemplates: () => void;
     onOpenWorkspaceModal: () => void;
@@ -294,8 +297,18 @@
                 <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse"></span>
               </Tooltip>
             {:else if sessionStreams[session.id]?.isStreaming}
-              <Tooltip text="Generating response..." position="right">
-                <Sparkles size={13} class="shrink-0 text-accent-theme animate-spin" />
+              <Tooltip text="Generating response (Click stop icon to cancel)" position="right">
+                <button
+                  type="button"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onCancelSession?.(session.id);
+                  }}
+                  class="p-0.5 rounded hover:bg-rose-500/20 text-rose-500 hover:text-rose-400 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                  aria-label="Stop generation for {session.title}"
+                >
+                  <Square size={12} class="fill-current" />
+                </button>
               </Tooltip>
             {:else}
               <MessageSquare size={14} class="shrink-0 {activeSession?.id === session.id ? 'text-accent-theme' : 'text-muted-theme'}" />
