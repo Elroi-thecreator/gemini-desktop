@@ -63,6 +63,17 @@ pub struct ToolPermissionPayload {
     pub options: Vec<PermissionOption>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedToolCall {
+    pub tool_call_id: String,
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+    pub kind: Option<String>,
+    pub locations: Option<Value>,
+    pub parameters: Option<Value>,
+    pub content: Option<Value>,
+}
+
 pub struct AcpSession {
     next_id: AtomicU64,
     stdin_writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
@@ -71,6 +82,7 @@ pub struct AcpSession {
     local_to_acp: Arc<StdMutex<HashMap<String, String>>>,
     acp_to_local: Arc<StdMutex<HashMap<String, String>>>,
     current_session_id: Arc<StdMutex<Option<String>>>,
+    cached_tool_calls: Arc<StdMutex<HashMap<String, CachedToolCall>>>,
 }
 
 impl AcpSession {
@@ -83,6 +95,7 @@ impl AcpSession {
             local_to_acp: Arc::new(StdMutex::new(HashMap::new())),
             acp_to_local: Arc::new(StdMutex::new(HashMap::new())),
             current_session_id: Arc::new(StdMutex::new(None)),
+            cached_tool_calls: Arc::new(StdMutex::new(HashMap::new())),
         }
     }
 
@@ -152,6 +165,39 @@ impl AcpSession {
         if let Ok(mut cs) = self.current_session_id.lock() {
             *cs = None;
         }
+    }
+
+    pub fn update_cached_tool_call(&self, update: CachedToolCall) {
+        if let Ok(mut map) = self.cached_tool_calls.lock() {
+            if let Some(existing) = map.get_mut(&update.tool_call_id) {
+                if update.session_id.is_some() {
+                    existing.session_id = update.session_id;
+                }
+                if update.title.is_some() {
+                    existing.title = update.title;
+                }
+                if update.kind.is_some() {
+                    existing.kind = update.kind;
+                }
+                if update.locations.is_some() {
+                    existing.locations = update.locations;
+                }
+                if let Some(p) = update.parameters {
+                    if !p.is_null() && !(p.is_object() && p.as_object().map(|o| o.is_empty()).unwrap_or(false)) {
+                        existing.parameters = Some(p);
+                    }
+                }
+                if update.content.is_some() {
+                    existing.content = update.content;
+                }
+            } else {
+                map.insert(update.tool_call_id.clone(), update);
+            }
+        }
+    }
+
+    pub fn get_cached_tool_call(&self, id: &str) -> Option<CachedToolCall> {
+        self.cached_tool_calls.lock().ok()?.get(id).cloned()
     }
 
     pub fn take_pending_request(&self, id: u64) -> Option<oneshot::Sender<Result<Value, JsonRpcError>>> {
@@ -356,6 +402,77 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                         .and_then(|acp_sid| acp_session.get_local_session_id(acp_sid))
                         .unwrap_or_else(|| active_session_id.clone());
 
+                    // Check if this update is a tool_call or tool_call_update
+                    let update_obj = val.pointer("/params/update");
+                    let session_update_type = update_obj
+                        .and_then(|u| u.get("sessionUpdate").or_else(|| u.get("type")))
+                        .or_else(|| val.pointer("/params/sessionUpdate"))
+                        .and_then(|s| s.as_str());
+
+                    let update_tool_call_id = update_obj
+                        .and_then(|u| u.get("toolCallId").or_else(|| u.pointer("/toolCall/toolCallId")))
+                        .or_else(|| val.pointer("/params/toolCallId"))
+                        .and_then(|s| s.as_str())
+                        .map(|s| s.to_string());
+
+                    if session_update_type == Some("tool_call")
+                        || session_update_type == Some("tool_call_update")
+                        || update_tool_call_id.is_some()
+                    {
+                        if let Some(tcid) = update_tool_call_id {
+                            let title = update_obj
+                                .and_then(|u| u.get("title").or_else(|| u.pointer("/toolCall/title")))
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string());
+
+                            let kind = update_obj
+                                .and_then(|u| u.get("kind").or_else(|| u.pointer("/toolCall/kind")))
+                                .and_then(|k| k.as_str())
+                                .map(|s| s.to_string());
+
+                            let locations = update_obj
+                                .and_then(|u| u.get("locations").or_else(|| u.pointer("/toolCall/locations")))
+                                .cloned();
+
+                            let raw_input = update_obj
+                                .and_then(|u| {
+                                    u.get("rawInput")
+                                        .or_else(|| u.get("input"))
+                                        .or_else(|| u.get("arguments"))
+                                        .or_else(|| u.get("parameters"))
+                                        .or_else(|| u.pointer("/toolCall/rawInput"))
+                                        .or_else(|| u.pointer("/toolCall/input"))
+                                        .or_else(|| u.pointer("/toolCall/arguments"))
+                                        .or_else(|| u.pointer("/toolCall/parameters"))
+                                })
+                                .cloned();
+
+                            let content = update_obj
+                                .and_then(|u| u.get("content").or_else(|| u.pointer("/toolCall/content")))
+                                .cloned();
+
+                            acp_session.update_cached_tool_call(CachedToolCall {
+                                tool_call_id: tcid.clone(),
+                                session_id: Some(matched_session_id.clone()),
+                                title: title.clone(),
+                                kind: kind.clone(),
+                                locations: locations.clone(),
+                                parameters: raw_input.clone(),
+                                content: content.clone(),
+                            });
+
+                            let _ = app_handle.emit("acp-tool-call-update", CachedToolCall {
+                                tool_call_id: tcid,
+                                session_id: Some(matched_session_id.clone()),
+                                title,
+                                kind,
+                                locations,
+                                parameters: raw_input,
+                                content,
+                            });
+                        }
+                    }
+
                     // Check standard ACP format (update.content.text or update.delta) as well as flat fields
                     let delta = val.pointer("/params/update/content/text")
                         .or_else(|| val.pointer("/params/update/text"))
@@ -373,11 +490,13 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                         .and_then(|d| d.as_bool())
                         .unwrap_or(false);
 
-                    let _ = app_handle.emit("acp-chunk", StreamChunkPayload {
-                        session_id: matched_session_id,
-                        delta,
-                        is_done,
-                    });
+                    if !delta.is_empty() || is_done {
+                        let _ = app_handle.emit("acp-chunk", StreamChunkPayload {
+                            session_id: matched_session_id,
+                            delta,
+                            is_done,
+                        });
+                    }
                 }
                 // Interactive tool confirmation request
                 "permission/request" | "session/permission_request" | "session/request_permission" | "tool/confirm" => {
@@ -387,20 +506,24 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                         .and_then(|acp_sid| acp_session.get_local_session_id(acp_sid))
                         .unwrap_or_else(|| active_session_id.clone());
 
-                    let title = val.pointer("/params/toolCall/title")
-                        .or_else(|| val.pointer("/params/title"))
-                        .and_then(|t| t.as_str())
-                        .map(|s| s.to_string());
-
-                    let kind = val.pointer("/params/toolCall/kind")
-                        .or_else(|| val.pointer("/params/kind"))
-                        .and_then(|k| k.as_str())
-                        .map(|s| s.to_string());
-
                     let tool_call_id = val.pointer("/params/toolCall/toolCallId")
                         .or_else(|| val.pointer("/params/toolCallId"))
                         .and_then(|id| id.as_str())
                         .map(|s| s.to_string());
+
+                    let cached = tool_call_id.as_deref().and_then(|id| acp_session.get_cached_tool_call(id));
+
+                    let title = val.pointer("/params/toolCall/title")
+                        .or_else(|| val.pointer("/params/title"))
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| cached.as_ref().and_then(|c| c.title.clone()));
+
+                    let kind = val.pointer("/params/toolCall/kind")
+                        .or_else(|| val.pointer("/params/kind"))
+                        .and_then(|k| k.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| cached.as_ref().and_then(|c| c.kind.clone()));
 
                     let tool_name = val.pointer("/params/toolCall/name")
                         .or_else(|| val.pointer("/params/tool"))
@@ -411,7 +534,7 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                         .or_else(|| kind.clone())
                         .unwrap_or_else(|| "Tool Execution".to_string());
 
-                    let parameters = val.pointer("/params/toolCall/input")
+                    let mut parameters = val.pointer("/params/toolCall/input")
                         .or_else(|| val.pointer("/params/toolCall/rawInput"))
                         .or_else(|| val.pointer("/params/toolCall/arguments"))
                         .or_else(|| val.pointer("/params/toolCall/args"))
@@ -427,17 +550,27 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                         .cloned()
                         .unwrap_or(Value::Null);
 
+                    if parameters.is_null() || (parameters.is_object() && parameters.as_object().map(|o| o.is_empty()).unwrap_or(false)) {
+                        if let Some(cached_params) = cached.as_ref().and_then(|c| c.parameters.clone()) {
+                            if !cached_params.is_null() {
+                                parameters = cached_params;
+                            }
+                        }
+                    }
+
                     let locations = val.pointer("/params/toolCall/locations")
                         .or_else(|| val.pointer("/params/locations"))
                         .or_else(|| val.pointer("/params/toolCall/location"))
                         .or_else(|| val.pointer("/params/location"))
                         .or_else(|| val.pointer("/params/toolCall/path"))
                         .or_else(|| val.pointer("/params/path"))
-                        .cloned();
+                        .cloned()
+                        .or_else(|| cached.as_ref().and_then(|c| c.locations.clone()));
 
                     let content = val.pointer("/params/toolCall/content")
                         .or_else(|| val.pointer("/params/content"))
-                        .cloned();
+                        .cloned()
+                        .or_else(|| cached.as_ref().and_then(|c| c.content.clone()));
 
                     let reason = val.pointer("/params/reason")
                         .and_then(|r| r.as_str())

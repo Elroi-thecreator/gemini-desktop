@@ -541,7 +541,13 @@ export function extractDiffData(
         extractedOld = leftPart.slice(colonIdx + 1).trim();
       }
       const extractedNew = rightPart;
-      if (extractedOld || extractedNew) {
+      
+      // Clean trailing ellipsis for comparison
+      const cleanOld = extractedOld.replace(/\.\.\.$/, "").trim();
+      const cleanNew = extractedNew.replace(/\.\.\.$/, "").trim();
+
+      // Only treat title as diff source if the two snippets are distinctly different!
+      if (extractedOld && extractedNew && cleanOld !== cleanNew && cleanOld.length > 0 && cleanNew.length > 0) {
         return {
           isDiffAvailable: true,
           oldText: extractedOld,

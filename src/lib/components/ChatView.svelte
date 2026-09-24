@@ -130,7 +130,7 @@
   // Tool Permission Intercept & Diff State
   let permissionTab = $state<"diff" | "params">("diff");
   let liveOriginalContent = $state<string | null>(null);
-  let lastLoadedRequestId = $state<number | null>(null);
+  let lastLoadedFingerprint = $state<string>("");
 
   let extractedDiff = $derived.by<ExtractedDiffPayload | null>(() => {
     if (!toolPermission) return null;
@@ -145,50 +145,51 @@
   });
 
   let effectiveOldText = $derived.by(() => {
-    if (extractedDiff?.oldText !== undefined) {
+    if (extractedDiff?.oldText !== undefined && extractedDiff.oldText !== "") {
       return extractedDiff.oldText;
     }
     return liveOriginalContent ?? "";
   });
 
   $effect(() => {
-    if (toolPermission && toolPermission.request_id !== lastLoadedRequestId) {
-      lastLoadedRequestId = toolPermission.request_id;
-      liveOriginalContent = null;
+    if (toolPermission) {
+      const fingerprint = `${toolPermission.request_id}_${JSON.stringify(toolPermission.parameters || '')}_${JSON.stringify(toolPermission.locations || '')}`;
+      if (fingerprint !== lastLoadedFingerprint) {
+        lastLoadedFingerprint = fingerprint;
 
-      const diffInfo = extractDiffData(
-        toolPermission.parameters,
-        toolPermission.locations,
-        toolPermission.content,
-        toolPermission.kind,
-        toolPermission.tool_name,
-        toolPermission.title
-      );
+        const diffInfo = extractDiffData(
+          toolPermission.parameters,
+          toolPermission.locations,
+          toolPermission.content,
+          toolPermission.kind,
+          toolPermission.tool_name,
+          toolPermission.title
+        );
 
-      if (diffInfo.isDiffAvailable || diffInfo.toolCategory === "edit") {
-        permissionTab = "diff";
-      } else {
-        permissionTab = "params";
-      }
+        if (diffInfo.isDiffAvailable || diffInfo.toolCategory === "edit") {
+          permissionTab = "diff";
+        } else {
+          permissionTab = "params";
+        }
 
-      // If we have a file path and new text but no old text, load current file from disk
-      if (
-        diffInfo.filePath &&
-        diffInfo.newText !== undefined &&
-        diffInfo.oldText === undefined &&
-        !diffInfo.patch
-      ) {
-        invoke<string>("read_workspace_file_content", {
-          workspaceId: workspace ? workspace.id : "",
-          relativePath: diffInfo.filePath,
-        })
-          .then((content) => {
-            liveOriginalContent = content;
+        // If we have a file path and no old text or unified patch, load current file from disk
+        if (
+          diffInfo.filePath &&
+          diffInfo.oldText === undefined &&
+          !diffInfo.patch
+        ) {
+          invoke<string>("read_workspace_file_content", {
+            workspaceId: workspace ? workspace.id : "",
+            relativePath: diffInfo.filePath,
           })
-          .catch((err) => {
-            console.warn("Could not read original file for diff:", err);
-            liveOriginalContent = "";
-          });
+            .then((content) => {
+              liveOriginalContent = content;
+            })
+            .catch((err) => {
+              console.warn("Could not read original file for diff:", err);
+              liveOriginalContent = "";
+            });
+        }
       }
     }
   });
@@ -831,7 +832,7 @@
         </div>
 
         <!-- View Switcher Toggle (Visual Diff vs Raw Parameters) -->
-        {#if extractedDiff && (extractedDiff.isDiffAvailable || extractedDiff.toolCategory === "edit")}
+        {#if extractedDiff && (extractedDiff.isDiffAvailable || (extractedDiff.toolCategory === "edit" && (extractedDiff.newText !== undefined || extractedDiff.patch !== undefined)))}
           <div class="inline-flex rounded-lg border border-theme-default bg-surface p-0.5 text-xs shrink-0 select-none">
             <button
               type="button"
@@ -880,7 +881,7 @@
       {/if}
 
       <!-- Visual Diff Viewer or Fallback Parameters -->
-      {#if permissionTab === "diff" && extractedDiff && (extractedDiff.isDiffAvailable || extractedDiff.toolCategory === "edit")}
+      {#if permissionTab === "diff" && extractedDiff && (extractedDiff.isDiffAvailable || (extractedDiff.toolCategory === "edit" && (extractedDiff.newText !== undefined || extractedDiff.patch !== undefined)))}
         <div class="mt-3">
           <DiffViewer
             oldText={effectiveOldText}
@@ -891,18 +892,21 @@
         </div>
       {:else}
         <!-- Command or Parameters Detail -->
-        {#if toolPermission.parameters}
-          {#if toolPermission.parameters.command || toolPermission.parameters.cmd}
-            <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono overflow-x-auto text-primary-theme">
-              <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Command:</div>
-              <code class="text-emerald-600 dark:text-emerald-400 font-semibold">{toolPermission.parameters.command || toolPermission.parameters.cmd}</code>
-            </div>
-          {:else if typeof toolPermission.parameters === 'object' && Object.keys(toolPermission.parameters).length > 0}
-            <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono text-primary-theme max-h-48 overflow-y-auto">
-              <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Parameters:</div>
-              <pre class="text-[11px] whitespace-pre-wrap text-secondary-theme">{JSON.stringify(toolPermission.parameters, null, 2)}</pre>
-            </div>
-          {/if}
+        {#if toolPermission.parameters && (toolPermission.parameters.command || toolPermission.parameters.cmd)}
+          <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono overflow-x-auto text-primary-theme">
+            <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Command:</div>
+            <code class="text-emerald-600 dark:text-emerald-400 font-semibold">{toolPermission.parameters.command || toolPermission.parameters.cmd}</code>
+          </div>
+        {:else if toolPermission.parameters && typeof toolPermission.parameters === 'object' && Object.keys(toolPermission.parameters).length > 0}
+          <div class="mt-2.5 p-2.5 bg-app rounded-lg border border-subtle text-xs font-mono text-primary-theme max-h-48 overflow-y-auto">
+            <div class="text-[10px] uppercase font-sans font-semibold text-muted-theme mb-1">Parameters:</div>
+            <pre class="text-[11px] whitespace-pre-wrap text-secondary-theme">{JSON.stringify(toolPermission.parameters, null, 2)}</pre>
+          </div>
+        {:else if extractedDiff?.toolCategory === "edit"}
+          <div class="mt-2.5 p-3 bg-app rounded-lg border border-subtle text-xs text-secondary-theme flex items-center gap-2.5">
+            <FileCode size={16} class="text-accent-theme shrink-0" />
+            <span>File modification requested for <span class="font-mono text-primary-theme font-semibold">{extractedDiff?.filePath || (toolPermission.locations ? (Array.isArray(toolPermission.locations) ? (toolPermission.locations[0]?.path || toolPermission.locations[0]) : toolPermission.locations?.path || toolPermission.locations) : "target file")}</span></span>
+          </div>
         {/if}
       {/if}
 

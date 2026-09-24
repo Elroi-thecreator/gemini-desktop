@@ -63,6 +63,7 @@
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
+  let unlistenToolUpdate: UnlistenFn | null = null;
   let unlistenError: UnlistenFn | null = null;
 
   onMount(async () => {
@@ -144,6 +145,40 @@
       }
     );
 
+    unlistenToolUpdate = await listen<any>(
+      "acp-tool-call-update",
+      (event) => {
+        const update = event.payload;
+        if (!update || !update.tool_call_id) return;
+
+        for (const sid of Object.keys(sessionToolPermissions)) {
+          const perm = sessionToolPermissions[sid];
+          if (perm && (perm.tool_call_id === update.tool_call_id || !perm.tool_call_id)) {
+            let changed = false;
+            if (update.parameters && (typeof update.parameters === "object" ? Object.keys(update.parameters).length > 0 : true)) {
+              perm.parameters = update.parameters;
+              changed = true;
+            }
+            if (update.locations && (Array.isArray(update.locations) ? update.locations.length > 0 : true)) {
+              perm.locations = update.locations;
+              changed = true;
+            }
+            if (update.content) {
+              perm.content = update.content;
+              changed = true;
+            }
+            if (update.title && !perm.title) {
+              perm.title = update.title;
+              changed = true;
+            }
+            if (changed) {
+              sessionToolPermissions[sid] = { ...perm };
+            }
+          }
+        }
+      }
+    );
+
     unlistenError = await listen<any>("acp-error", async (event) => {
       const payload = event.payload;
       const payloadStr = JSON.stringify(payload || "");
@@ -170,6 +205,7 @@
   onDestroy(() => {
     if (unlistenChunk) unlistenChunk();
     if (unlistenTool) unlistenTool();
+    if (unlistenToolUpdate) unlistenToolUpdate();
     if (unlistenError) unlistenError();
     window.removeEventListener("keydown", handleGlobalShortcuts);
   });
