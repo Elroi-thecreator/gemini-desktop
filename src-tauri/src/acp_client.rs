@@ -474,16 +474,35 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                     }
 
                     // Check standard ACP format (update.content.text or update.delta) as well as flat fields
-                    let delta = val.pointer("/params/update/content/text")
+                    let mut delta = val.pointer("/params/update/content/text")
                         .or_else(|| val.pointer("/params/update/text"))
                         .or_else(|| val.pointer("/params/update/delta"))
-                        .or_else(|| val.pointer("/params/update/content"))
                         .or_else(|| val.pointer("/params/delta"))
-                        .or_else(|| val.pointer("/params/content"))
                         .or_else(|| val.pointer("/params/text"))
                         .and_then(|t| t.as_str())
                         .unwrap_or("")
                         .to_string();
+
+                    // If delta is still empty, check if update.content is an array of content blocks (common in tool_call_update and agent responses)
+                    if delta.is_empty() {
+                        if let Some(arr) = val.pointer("/params/update/content").and_then(|c| c.as_array()) {
+                            let mut parts = Vec::new();
+                            for item in arr {
+                                if let Some(t) = item.get("text").and_then(|s| s.as_str()) {
+                                    parts.push(t);
+                                }
+                            }
+                            if !parts.is_empty() {
+                                delta = parts.join("");
+                            }
+                        }
+                    }
+
+                    if delta.is_empty() {
+                        if let Some(t) = val.pointer("/params/update/content").and_then(|c| c.as_str()) {
+                            delta = t.to_string();
+                        }
+                    }
 
                     let is_done = val.pointer("/params/done")
                         .or_else(|| val.pointer("/params/update/done"))
@@ -623,6 +642,47 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                     });
                 }
                 _ => {
+                    // Check if this incoming message is an Agent-to-Client Request (has an 'id')
+                    // In YOLO mode or when ACP agents delegate filesystem/terminal actions,
+                    // the agent expects a JSON-RPC response. If left unanswered, the CLI deadlocks or crashes!
+                    if let Some(req_id) = val.get("id").and_then(|i| i.as_u64()) {
+                        let acp_clone = acp_session.clone();
+                        let val_clone = val.clone();
+                        let method_str = method.to_string();
+                        tokio::spawn(async move {
+                            match method_str.as_str() {
+                                "fs/read_text_file" => {
+                                    let path_opt = val_clone.pointer("/params/path").and_then(|p| p.as_str());
+                                    let res = if let Some(p) = path_opt {
+                                        match std::fs::read_to_string(p) {
+                                            Ok(content) => serde_json::json!({ "content": content }),
+                                            Err(e) => serde_json::json!({ "error": e.to_string() }),
+                                        }
+                                    } else {
+                                        serde_json::json!({ "content": "" })
+                                    };
+                                    let _ = acp_clone.send_response(req_id, res).await;
+                                }
+                                "fs/write_text_file" => {
+                                    let path_opt = val_clone.pointer("/params/path").and_then(|p| p.as_str());
+                                    let content_opt = val_clone.pointer("/params/content").and_then(|c| c.as_str()).unwrap_or("");
+                                    if let Some(p) = path_opt {
+                                        let path_buf = std::path::PathBuf::from(p);
+                                        if let Some(parent) = path_buf.parent() {
+                                            let _ = std::fs::create_dir_all(parent);
+                                        }
+                                        let _ = std::fs::write(&path_buf, content_opt);
+                                    }
+                                    let _ = acp_clone.send_response(req_id, serde_json::json!({})).await;
+                                }
+                                _ => {
+                                    // Acknowledge immediately with an empty result so Gemini CLI async loop never hangs
+                                    let _ = acp_clone.send_response(req_id, serde_json::json!({})).await;
+                                }
+                            }
+                        });
+                    }
+
                     // Forward generic notification
                     let _ = app_handle.emit("acp-notification", val);
                 }

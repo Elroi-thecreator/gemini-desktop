@@ -301,9 +301,34 @@ pub async fn send_prompt(
 
                 *ws_guard = Some(workspace_id.clone());
 
-                // Send initialize request (per ACP specification)
+                let rt_handle = tokio::runtime::Handle::current();
+                let active_ws_clone = state.active_process_workspace.clone();
+                let app_exit_clone = app.clone();
+                let session_exit_clone = session_id.clone();
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                    // When the child process exits or crashes, clear the active workspace lock so subsequent prompts re-spawn cleanly
+                    rt_handle.spawn(async move {
+                        let mut guard = active_ws_clone.lock().await;
+                        *guard = None;
+                    });
+                    // Ensure frontend finishes streaming if the process exited mid-stream
+                    let _ = app_exit_clone.emit("acp-chunk", crate::acp_client::StreamChunkPayload {
+                        session_id: session_exit_clone,
+                        delta: String::new(),
+                        is_done: true,
+                    });
+                });
+
+                // Send initialize request with explicit capabilities (per ACP specification)
                 let _ = state.acp_session.send_request_with_response("initialize", serde_json::json!({
                     "protocolVersion": 1,
+                    "clientCapabilities": {
+                        "fs": {
+                            "readTextFile": true,
+                            "writeTextFile": true
+                        }
+                    },
                     "clientInfo": {
                         "name": "GeminiDesktop",
                         "version": env!("CARGO_PKG_VERSION")

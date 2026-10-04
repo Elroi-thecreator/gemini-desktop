@@ -17,8 +17,9 @@
       ],
     },
     {
-      group: "Gemini 3 / 3.5",
+      group: "Gemini 3 / 3.5 / 3.8",
       options: [
+        { value: "gemini-3.8-flash", label: "gemini-3.8-flash (Latest Flash in Gemini CLI)" },
         { value: "gemini-3.5-flash", label: "gemini-3.5-flash (Fast & powerful default in CLI 0.59)" },
         { value: "gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite (Ultra-fast & lightweight 3.5)" },
         { value: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview (Deep reasoning, complex coding)" },
