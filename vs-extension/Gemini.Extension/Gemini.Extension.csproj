@@ -116,6 +116,14 @@
     <MakeDir Directories="Resources\WebDist" />
     <Copy SourceFiles="@(FrontendFiles)" DestinationFiles="@(FrontendFiles->'Resources\WebDist\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
+  <PropertyGroup>
+    <GetVsixSourceItemsDependsOn>$(GetVsixSourceItemsDependsOn);IncludeNuGetResolvedAssets</GetVsixSourceItemsDependsOn>
+  </PropertyGroup>
+  <Target Name="IncludeNuGetResolvedAssets" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <VSIXCopyLocalReferenceSourceItem Include="@(ReferenceCopyLocalPaths)" />
+    </ItemGroup>
+  </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VSToolsPath)' != '' and Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
 </Project>

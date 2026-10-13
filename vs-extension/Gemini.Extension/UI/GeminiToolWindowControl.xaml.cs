@@ -6,16 +6,27 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.VisualStudio.PlatformUI;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace Gemini.Extension.UI
 {
     public partial class GeminiToolWindowControl : UserControl
     {
         private Bridge.WebView2Bridge bridge;
+        private WebView2 WebView;
+        private bool isInitialized = false;
 
         public GeminiToolWindowControl()
         {
             InitializeComponent();
+
+            WebView = new WebView2
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            WebViewHost.Children.Add(WebView);
+
             Loaded += OnLoaded;
             VSColorTheme.ThemeChanged += OnVsThemeChanged;
         }
@@ -34,6 +45,9 @@ namespace Gemini.Extension.UI
 
         private async Task InitializeWebView2Async()
         {
+            if (isInitialized) return;
+            isInitialized = true;
+
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string userDataFolder = Path.Combine(localAppData, "GeminiVS", "WebView2Data");
             Directory.CreateDirectory(userDataFolder);
