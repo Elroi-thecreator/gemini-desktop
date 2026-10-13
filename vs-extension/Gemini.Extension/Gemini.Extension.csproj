@@ -9,6 +9,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 
     <!-- VSSDK Properties -->
+    <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">17.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
     <VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
     <UseCodebase>true</UseCodebase>
@@ -82,4 +85,6 @@
       <VSIXCopyLocalReferenceSourceItem Include="@(ReferenceCopyLocalPaths)" />
     </ItemGroup>
   </Target>
+
+  <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VSToolsPath)' != '' and Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
 </Project>
