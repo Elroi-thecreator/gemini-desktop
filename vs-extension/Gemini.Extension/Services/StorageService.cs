@@ -21,53 +21,62 @@ namespace Gemini.Extension.Services
 
         public async Task InitializeAsync()
         {
-            connection = new SqliteConnection($"Data Source={dbPath}");
-            await connection.OpenAsync();
-
-            string initSql = @"
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id TEXT PRIMARY KEY,
-                    workspace_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    model TEXT,
-                    created_at INTEGER NOT NULL,
-                    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS prompt_templates (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    category TEXT,
-                    created_at INTEGER NOT NULL
-                );
-
-                CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-                    content,
-                    content='messages',
-                    content_rowid='rowid'
-                );
-            ";
-
-            using (var cmd = connection.CreateCommand())
+            try
             {
-                cmd.CommandText = initSql;
-                await cmd.ExecuteNonQueryAsync();
+                connection = new SqliteConnection($"Data Source={dbPath}");
+                await connection.OpenAsync();
+
+                string initSql = @"
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        model TEXT,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                    );
+
+                    CREATE TABLE IF NOT EXISTS prompt_templates (
+                        id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        category TEXT,
+                        created_at INTEGER NOT NULL
+                    );
+
+                    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                        content,
+                        content='messages',
+                        content_rowid='rowid'
+                    );
+                ";
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = initSql;
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] SQLite storage initialization warning: {ex.Message}");
             }
         }
 
         public async Task<List<SessionRecord>> GetSessionsAsync(string workspaceId)
         {
             var list = new List<SessionRecord>();
+            if (connection == null || connection.State != System.Data.ConnectionState.Open) return list;
+
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = "SELECT id, workspace_id, title, created_at, updated_at FROM sessions WHERE workspace_id = @wsId ORDER BY updated_at DESC";
@@ -97,6 +106,11 @@ namespace Gemini.Extension.Services
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             title = string.IsNullOrWhiteSpace(title) ? "New Chat" : title;
 
+            if (connection == null || connection.State != System.Data.ConnectionState.Open)
+            {
+                return new SessionRecord { Id = id, WorkspaceId = workspaceId, Title = title, CreatedAt = now, UpdatedAt = now };
+            }
+
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = "INSERT INTO sessions (id, workspace_id, title, created_at, updated_at) VALUES (@id, @wsId, @title, @now, @now)";
@@ -113,6 +127,8 @@ namespace Gemini.Extension.Services
         public async Task<List<MessageRecord>> GetMessagesAsync(string sessionId)
         {
             var list = new List<MessageRecord>();
+            if (connection == null || connection.State != System.Data.ConnectionState.Open) return list;
+
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = "SELECT id, session_id, role, content, model, created_at FROM messages WHERE session_id = @sid ORDER BY created_at ASC";
@@ -139,6 +155,8 @@ namespace Gemini.Extension.Services
 
         public async Task SaveMessageAsync(MessageRecord msg)
         {
+            if (connection == null || connection.State != System.Data.ConnectionState.Open) return;
+
             long now = msg.CreatedAt > 0 ? msg.CreatedAt : DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             using (var cmd = connection.CreateCommand())
             {
@@ -159,6 +177,8 @@ namespace Gemini.Extension.Services
 
         public async Task RenameSessionAsync(string sessionId, string title)
         {
+            if (connection == null || connection.State != System.Data.ConnectionState.Open) return;
+
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             using (var cmd = connection.CreateCommand())
             {
@@ -172,6 +192,8 @@ namespace Gemini.Extension.Services
 
         public async Task DeleteSessionAsync(string sessionId)
         {
+            if (connection == null || connection.State != System.Data.ConnectionState.Open) return;
+
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = "DELETE FROM messages WHERE session_id = @id; DELETE FROM sessions WHERE id = @id;";
@@ -183,7 +205,7 @@ namespace Gemini.Extension.Services
         public async Task<List<SearchResultItem>> SearchHistoryAsync(string query)
         {
             var list = new List<SearchResultItem>();
-            if (string.IsNullOrWhiteSpace(query)) return list;
+            if (string.IsNullOrWhiteSpace(query) || connection == null || connection.State != System.Data.ConnectionState.Open) return list;
 
             using (var cmd = connection.CreateCommand())
             {
@@ -247,20 +269,23 @@ namespace Gemini.Extension.Services
         public async Task<List<PromptTemplateItem>> GetPromptTemplatesAsync()
         {
             var list = new List<PromptTemplateItem>();
-            using (var cmd = connection.CreateCommand())
+            if (connection != null && connection.State == System.Data.ConnectionState.Open)
             {
-                cmd.CommandText = "SELECT id, title, content, category FROM prompt_templates ORDER BY title ASC";
-                using (var reader = await cmd.ExecuteReaderAsync())
+                using (var cmd = connection.CreateCommand())
                 {
-                    while (await reader.ReadAsync())
+                    cmd.CommandText = "SELECT id, title, content, category FROM prompt_templates ORDER BY title ASC";
+                    using (var reader = await cmd.ExecuteReaderAsync())
                     {
-                        list.Add(new PromptTemplateItem
+                        while (await reader.ReadAsync())
                         {
-                            Id = reader.GetString(0),
-                            Title = reader.GetString(1),
-                            Content = reader.GetString(2),
-                            Category = reader.IsDBNull(3) ? null : reader.GetString(3)
-                        });
+                            list.Add(new PromptTemplateItem
+                            {
+                                Id = reader.GetString(0),
+                                Title = reader.GetString(1),
+                                Content = reader.GetString(2),
+                                Category = reader.IsDBNull(3) ? null : reader.GetString(3)
+                            });
+                        }
                     }
                 }
             }

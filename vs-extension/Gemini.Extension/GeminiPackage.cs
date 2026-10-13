@@ -10,6 +10,9 @@ namespace Gemini.Extension
 {
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     [Guid(GeminiPackage.PackageGuidString)]
+    [ProvideBindingPath]
+    [ProvideAutoLoad(UIContextGuids80.NoSolution, PackageAutoLoadFlags.BackgroundLoad)]
+    [ProvideAutoLoad(UIContextGuids80.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(UI.GeminiToolWindow), Style = VsDockStyle.Tabbed, MultiInstances = false)]
     [ProvideOptionPage(typeof(Options.GeminiOptionsPage), "Gemini", "General", 0, 0, true)]
@@ -34,18 +37,32 @@ namespace Gemini.Extension
 
             // Switch to UI thread to register commands
             await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-            await Commands.GeminiToolWindowCommand.InitializeAsync(this);
-            await Commands.GeminiEditorCommands.InitializeAsync(this);
+            try
+            {
+                await Commands.GeminiToolWindowCommand.InitializeAsync(this);
+                await Commands.GeminiEditorCommands.InitializeAsync(this);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Command registration error: {ex}");
+            }
 
-            // Initialize extension background services
-            ProcessSupervisor = new Services.ProcessSupervisor();
-            StorageService = new Services.StorageService();
-            await StorageService.InitializeAsync();
+            // Initialize extension background services with safety guard
+            try
+            {
+                ProcessSupervisor = new Services.ProcessSupervisor();
+                StorageService = new Services.StorageService();
+                await StorageService.InitializeAsync();
 
-            IdeContextService = new Services.IdeContextService(this);
-            NativeDiffService = new Services.NativeDiffService(this);
-            DiagnosticsService = new Services.DiagnosticsService(this);
-            AcpClient = new Services.AcpClient(ProcessSupervisor);
+                IdeContextService = new Services.IdeContextService(this);
+                NativeDiffService = new Services.NativeDiffService(this);
+                DiagnosticsService = new Services.DiagnosticsService(this);
+                AcpClient = new Services.AcpClient(ProcessSupervisor);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Background services init error: {ex}");
+            }
         }
 
         protected override void Dispose(bool disposing)

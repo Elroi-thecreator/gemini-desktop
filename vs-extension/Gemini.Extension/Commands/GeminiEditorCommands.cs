@@ -44,10 +44,10 @@ namespace Gemini.Extension.Commands
         private async void ExecuteAskSelection(object sender, EventArgs e)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var pkg = GeminiPackage.Instance;
-            if (pkg == null) return;
-
             ShowToolWindow();
+
+            var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
+            if (pkg == null || pkg.IdeContextService == null) return;
 
             var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
             pkg.Bridge?.DispatchEvent("vs-context-action", new
@@ -60,10 +60,10 @@ namespace Gemini.Extension.Commands
         private async void ExecuteExplainCode(object sender, EventArgs e)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var pkg = GeminiPackage.Instance;
-            if (pkg == null) return;
-
             ShowToolWindow();
+
+            var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
+            if (pkg == null || pkg.IdeContextService == null) return;
 
             var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
             string prompt = string.IsNullOrWhiteSpace(ctx?.SelectedText)
@@ -81,10 +81,10 @@ namespace Gemini.Extension.Commands
         private async void ExecuteFixErrors(object sender, EventArgs e)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var pkg = GeminiPackage.Instance;
-            if (pkg == null) return;
-
             ShowToolWindow();
+
+            var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
+            if (pkg == null || pkg.DiagnosticsService == null) return;
 
             var diagnostics = await pkg.DiagnosticsService.GetActiveDiagnosticsAsync();
             var sb = new System.Text.StringBuilder();

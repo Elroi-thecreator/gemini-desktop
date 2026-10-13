@@ -5,6 +5,7 @@ using Microsoft.VisualStudio.Shell;
 namespace Gemini.Extension.Options
 {
     [Guid("c8a7b6c5-d4e3-2f1a-0b9c-8d7e6f5a4b3c")]
+    [ComVisible(true)]
     public class GeminiOptionsPage : DialogPage
     {
         [Category("General")]
