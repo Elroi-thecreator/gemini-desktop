@@ -7,7 +7,7 @@
     <Groups>
       <!-- Group inside View -> Other Windows menu -->
       <Group guid="guidGeminiPackageCmdSet" id="GeminiViewGroup" priority="0x0600">
-        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTHRWNDWS1"/>
+        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1"/>
       </Group>
 
       <!-- Group inside Code Editor Right-Click Context Menu -->
