@@ -1,8 +1,8 @@
 # Gemini Desktop Master Knowledge Graph & Index
 system_name: GeminiDesktop
 repository_root: "c:/AIFiles/gemini-desktop"
-knowledge_units_count: 20
-last_updated: "2026-10-08"
+knowledge_units_count: 21
+last_updated: "2026-10-13"
 
 knowledge_units:
   architecture:
@@ -18,6 +18,9 @@ knowledge_units:
     - id: ARCH-DATA-001
       file: "knowledge/architecture/ARCH-DATA-001.yaml"
       title: "Local-First SQLite Database, Migrations & FTS5 Search Index"
+    - id: ARCH-VSIX-001
+      file: "knowledge/architecture/ARCH-VSIX-001.yaml"
+      title: "Visual Studio 2022 VSIX Extension Hybrid Architecture & Bridge Standard"
 
   development:
     - id: DEV-SVELTE-001

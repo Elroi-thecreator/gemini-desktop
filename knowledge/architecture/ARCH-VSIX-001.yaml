@@ -1,0 +1,41 @@
+id: ARCH-VSIX-001
+type: architecture_standard
+title: Visual Studio 2022 VSIX Extension Hybrid Architecture & Bridge Standard
+domain: architecture
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: core_architecture
+
+applies_to:
+  - vsix_extension
+  - frontend
+  - bridge
+  - process_supervisor
+
+rule: "The Visual Studio 2022 extension operates as an in-process AsyncPackage hosting a WPF ToolWindowPane with WebView2. It reuses the Svelte 5 frontend via virtual host mapping (gemini-desktop.local), routes ACP JSON-RPC 2.0 streaming via a C# message bridge, and enforces child process cleanup using Win32 Job Objects."
+
+do:
+  - "Supervise all spawned Gemini CLI instances in C# with Win32 Job Objects configured with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE."
+  - "Map static frontend build assets in WebView2 via SetVirtualHostNameToFolderMapping to avoid file:// security restrictions."
+  - "Synchronize Visual Studio theme colors dynamically via VSColorTheme.ThemeChanged into WebView2 CSS custom properties."
+  - "Integrate IDE context services (DTE2 ActiveDocument, IVsDifferenceService, and IVsErrorList) to enrich prompt synthesis and code reviews."
+  - "Register editor context menus (IDM_VS_CTXT_CODEWIN and IDM_VS_CTXT_ERRORLIST) with shortcuts (Ctrl+Alt+A) to seamlessly forward selection context."
+  - "Bridge VSCT commands to frontend state via vs-context-action and gemini-prefill-prompt custom events."
+  - "Bundle frontend static assets using npm run build:vsix and MSBuild CopyFrontendBuild pre-build target."
+  - "Maintain local SQLite persistence in %LocalAppData%\\GeminiVS with FTS5 search parity."
+
+dont:
+  - "Do not allow unmonitored child process spawning that could leave orphaned Node.js CLI processes after Visual Studio exits."
+  - "Do not rewrite frontend UI components in XAML when WebView2 can natively host the existing Svelte 5 runes architecture."
+
+reason: "Enables Visual Studio 2022 developers to use Gemini Desktop natively within their IDE while achieving maximum code reuse from the Svelte 5 frontend and preserving zero-zombie process guarantees."
+
+related_items:
+  - ARCH-SYS-001
+  - ARCH-ACP-001
+  - ARCH-PROC-001
+  - DEV-SVELTE-001
