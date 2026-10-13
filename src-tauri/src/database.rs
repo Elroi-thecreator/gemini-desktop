@@ -342,24 +342,8 @@ impl DbManager {
             params![msg.id, msg.session_id, msg.role, msg.content, msg.tool_calls_json, msg.token_count, msg.created_at],
         ).map_err(|e| e.to_string())?;
 
-        // Update session's updated_at timestamp (and atomically auto-assign title if still default)
+        // Update session's updated_at timestamp
         let now = Utc::now().to_rfc3339();
-        if msg.role == "user" {
-            let clean: String = msg.content.split_whitespace().collect::<Vec<_>>().join(" ");
-            if !clean.is_empty() {
-                let char_count = clean.chars().count();
-                let summary = if char_count > 32 {
-                    let truncated: String = clean.chars().take(32).collect();
-                    format!("{}...", truncated)
-                } else {
-                    clean
-                };
-                let _ = conn.execute(
-                    "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3 AND (title = 'New Conversation' OR title = 'New Chat' OR title = '')",
-                    params![summary, now, msg.session_id],
-                );
-            }
-        }
         let _ = conn.execute("UPDATE sessions SET updated_at = ?1 WHERE id = ?2", params![now, msg.session_id]);
 
         Ok(())
@@ -623,42 +607,6 @@ mod tests {
         db.set_setting("gemini_auth_mode", "api_key").unwrap();
         assert_eq!(db.get_setting("gemini_auth_mode").unwrap().as_deref(), Some("api_key"));
     }
-
-    #[test]
-    fn test_save_user_message_auto_assigns_new_conversation_title() {
-        let db = DbManager::new_in_memory().expect("in-memory db initialization failed");
-        let session = db.create_session("ws-personal", "New Conversation").expect("failed to create session");
-        assert_eq!(session.title, "New Conversation");
-
-        let user_msg = Message {
-            id: "msg-user-1".to_string(),
-            session_id: session.id.clone(),
-            role: "user".to_string(),
-            content: "Build a reactive Svelte 5 dashboard with SQLite FTS5".to_string(),
-            tool_calls_json: None,
-            token_count: 10,
-            created_at: Utc::now().to_rfc3339(),
-        };
-        db.save_message(user_msg).expect("failed to save user message");
-
-        let sessions = db.list_sessions("ws-personal").unwrap();
-        let updated = sessions.into_iter().find(|s| s.id == session.id).expect("session not found");
-        assert_eq!(updated.title, "Build a reactive Svelte 5 dashbo...");
-
-        // Subsequent user messages must not overwrite an already-assigned title
-        let follow_up_msg = Message {
-            id: "msg-user-2".to_string(),
-            session_id: session.id.clone(),
-            role: "user".to_string(),
-            content: "Now add dark mode support".to_string(),
-            tool_calls_json: None,
-            token_count: 5,
-            created_at: Utc::now().to_rfc3339(),
-        };
-        db.save_message(follow_up_msg).expect("failed to save follow-up message");
-
-        let sessions_after = db.list_sessions("ws-personal").unwrap();
-        let after = sessions_after.into_iter().find(|s| s.id == session.id).expect("session not found");
-        assert_eq!(after.title, "Build a reactive Svelte 5 dashbo...");
-    }
 }
+
+

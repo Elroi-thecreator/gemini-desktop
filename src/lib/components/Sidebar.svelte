@@ -533,7 +533,7 @@
             }
           }}
         >
-          <div class="flex items-center gap-2 truncate flex-1 min-w-0 mr-1">
+          <div class="flex items-center gap-2 truncate flex-1 mr-1">
             {#if generatingSessionIds?.has(session.id)}
               <span class="relative flex h-2 w-2 shrink-0">
                 <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-theme opacity-75"></span>
@@ -542,7 +542,7 @@
             {:else}
               <MessageSquare size={14} class="shrink-0 {activeSession?.id === session.id ? 'text-accent-theme' : 'text-muted-theme'}" />
             {/if}
-            <span class="truncate min-w-0">{session.title}</span>
+            <span class="truncate">{session.title}</span>
             {#if generatingSessionIds?.has(session.id)}
               <span class="ml-auto text-[10px] text-accent-theme font-medium animate-pulse shrink-0">
                 generating...

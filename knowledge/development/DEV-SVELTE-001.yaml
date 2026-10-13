@@ -3,7 +3,7 @@ type: development_standard
 title: Svelte 5 Runes State Management & Tailwind CSS v4 Component Standard
 domain: development
 status: approved
-version: 1.5.0
+version: 1.4.0
 authority:
   level: official
   confidence: high
@@ -32,13 +32,11 @@ do:
   - "Decompose high-complexity views into focused subcomponents (e.g. `ToolPermissionCard.svelte`, `ChatPromptComposer.svelte`, `ChatMentionPopover.svelte`, `ExplorerContextMenu.svelte`, `ExplorerTreeRow.svelte`) and extract reusable domain logic into pure utility modules (`approvalModes.ts`, `fileIcons.ts`, `fileFilters.ts`)."
   - "Enforce strict CSS stacking context hierarchy: header has `relative z-30`, chat message viewport has `z-0`, bottom prompt bar has `relative z-20`, tooltips elevate dynamically to `z-50` on hover, and dropdown menus (Export, Workspace profile) use `z-40` with outside-click dismissal backdrops so chat messages never occlude menus or tooltips."
   - "Design collateral navigation panels (Sidebar, SolutionExplorer) with dual-state layouts: full-width drawer when open, and a compact vertical icon strip (`w-12` on left, `w-7` on right) when collapsed to maximize chat and code viewing space while retaining 1-click access to core actions."
-  - "Maintain a single source of truth for active entities across views: track `activeSessionId = $state<string | null>(null)` and derive `activeSession = $derived(sessions.find((s) => s.id === activeSessionId) ?? null)`, updating `sessions` immutably via `.map()` synchronously before awaiting IPC calls so the left Sidebar and top ChatView header never desynchronize when switching chats during streaming."
 
 dont:
   - "Do not use legacy Svelte 3/4 `export let` syntax or stores (`writable`) when modern runes are available."
   - "Do not use inline arbitrary style attributes when Tailwind utility classes suffice."
   - "Do not use browser-native blocking modals (`window.alert`, `window.confirm`, `window.prompt`) which freeze the webview and disrupt IPC messaging."
-  - "Do not maintain duplicate independent `$state` object references for `activeSession` and `sessions[]` items that can drift out of sync across async `await` boundaries."
 
 reason:
   "Svelte 5 runes provide fine-grained reactivity, reduced boilerplate, and optimal bundle size for desktop SPAs."
