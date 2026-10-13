@@ -44,7 +44,10 @@ jobs:
           nuget restore vs-extension/Gemini.VisualStudio.sln
 
       - name: Build VSIX Package
-        run: msbuild vs-extension/Gemini.VisualStudio.sln /restore /p:Configuration=Release /p:DeployExtension=false /p:CreateVsixContainer=true /p:VisualStudioVersion=17.0 /v:normal /fl "/flp:logfile=msbuild.log;verbosity=detailed"
+        run: msbuild vs-extension/Gemini.Extension/Gemini.Extension.csproj /restore /t:Build,CreateVsixContainer /p:Configuration=Release /p:DeployExtension=false /p:CreateVsixContainer=true /p:VisualStudioVersion=17.0 /v:normal /fl "/flp:logfile=msbuild.log;verbosity=detailed"
+
+      - name: Locate Output Artifacts
+        run: Get-ChildItem -Path vs-extension/Gemini.Extension/bin -Recurse | Select-Object FullName, Length
 
       - name: Upload Build Log on Failure
         if: failure()
