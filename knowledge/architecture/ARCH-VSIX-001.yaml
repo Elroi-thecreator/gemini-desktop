@@ -28,7 +28,9 @@ do:
   - "Apply [ProvideBindingPath] and [ProvideAutoLoad] to the AsyncPackage so the Visual Studio AppDomain probes local extension assemblies without FileNotFoundException."
   - "Guard all background service initializations in AsyncPackage.InitializeAsync with defensive error logging so subservice faults never block package or options page loading."
   - "Bridge VSCT commands to frontend state via vs-context-action and gemini-prefill-prompt custom events."
-  - "Bundle frontend static assets using npm run build:vsix and MSBuild CopyFrontendBuild pre-build target."
+  - "Bundle frontend static assets using npm run build:vsix and MSBuild CopyFrontendBuild pre-build target with VSIXSubPath and Link metadata to prevent folder structure flattening in the VSIX container."
+  - "Discover WebDist static assets via multi-path fallback (Resources\\WebDist, extension root, WebDist, dev build) and fallback to embedded HTML to eliminate 404 Not Found errors in WebView2."
+  - "Resolve Gemini CLI path hierarchically: Tools > Options > Gemini > General, system PATH, npm global (%APPDATA%\\npm\\gemini.cmd), WinGet (%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\gemini.exe), and ProgramFiles."
   - "Maintain local SQLite persistence in %LocalAppData%\\GeminiVS with FTS5 search parity."
 
 dont:

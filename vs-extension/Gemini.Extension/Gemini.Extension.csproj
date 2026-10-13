@@ -75,6 +75,14 @@
     </Content>
     <Content Include="Resources\WebDist\**\*.*">
       <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>Resources\WebDist\%(RecursiveDir)</VSIXSubPath>
+      <Link>Resources\WebDist\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\WebDist\index.html">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath></VSIXSubPath>
+      <Link>index.html</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -85,6 +93,15 @@
     </ItemGroup>
     <MakeDir Directories="Resources\WebDist" />
     <Copy SourceFiles="@(FrontendFiles)" DestinationFiles="@(FrontendFiles->'Resources\WebDist\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="IncludeWebDistInVsix" BeforeTargets="GetVsixSourceItems">
+    <ItemGroup>
+      <WebDistFiles Include="Resources\WebDist\**\*.*" />
+      <VSIXSourceItem Include="@(WebDistFiles)">
+        <VSIXSubPath>Resources\WebDist\%(RecursiveDir)</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
   </Target>
 
   <PropertyGroup>

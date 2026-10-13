@@ -30,6 +30,21 @@ namespace Gemini.Extension
         public Services.StorageService StorageService { get; private set; }
         public Bridge.WebView2Bridge Bridge { get; set; }
 
+        public Options.GeminiOptionsPage Options
+        {
+            get
+            {
+                try
+                {
+                    return (Options.GeminiOptionsPage)GetDialogPage(typeof(Options.GeminiOptionsPage));
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
         protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
         {
             await base.InitializeAsync(cancellationToken, progress);

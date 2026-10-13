@@ -49,6 +49,20 @@ jobs:
       - name: Locate Output Artifacts
         run: Get-ChildItem -Path vs-extension/Gemini.Extension/bin -Recurse | Select-Object FullName, Length
 
+      - name: Verify VSIX Contents
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem -Path vs-extension/Gemini.Extension/bin/Release -Filter "*.vsix" -Recurse | Select-Object -First 1
+          if ($vsix) {
+            Write-Host "Unpacking VSIX to verify embedded assets: $($vsix.FullName)"
+            Expand-Archive -Path $vsix.FullName -DestinationPath "$env:RUNNER_TEMP\vsix_unpacked" -Force
+            Get-ChildItem -Path "$env:RUNNER_TEMP\vsix_unpacked" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+            $hasIndex = Test-Path "$env:RUNNER_TEMP\vsix_unpacked\Resources\WebDist\index.html"
+            $hasRootIndex = Test-Path "$env:RUNNER_TEMP\vsix_unpacked\index.html"
+            Write-Host "VSIX contains Resources\WebDist\index.html: $hasIndex"
+            Write-Host "VSIX contains root index.html: $hasRootIndex"
+          }
+
       - name: Upload Build Log on Failure
         if: failure()
         uses: actions/upload-artifact@v4

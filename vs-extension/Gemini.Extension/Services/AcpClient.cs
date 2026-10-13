@@ -322,7 +322,18 @@ namespace Gemini.Extension.Services
 
         private string FindGeminiCliPath()
         {
-            // 1. Check PATH
+            // 1. Check user-configured path in Tools > Options > Gemini > General
+            try
+            {
+                var options = GeminiPackage.Instance?.Options;
+                if (options != null && !string.IsNullOrWhiteSpace(options.GeminiCliPath) && File.Exists(options.GeminiCliPath))
+                {
+                    return options.GeminiCliPath;
+                }
+            }
+            catch { }
+
+            // 2. Check PATH
             string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
             foreach (var dir in pathEnv.Split(';'))
             {
@@ -333,10 +344,20 @@ namespace Gemini.Extension.Services
                 if (File.Exists(exePlain)) return exePlain;
             }
 
-            // 2. Default npm global path
+            // 3. Default npm global path (%APPDATA%\npm\gemini.cmd)
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string npmCmd = Path.Combine(appData, "npm", "gemini.cmd");
             if (File.Exists(npmCmd)) return npmCmd;
+
+            // 4. Default WinGet path (%LOCALAPPDATA%\Microsoft\WinGet\Links\gemini.exe)
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string wingetExe = Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "gemini.exe");
+            if (File.Exists(wingetExe)) return wingetExe;
+
+            // 5. Default Program Files Node.js path
+            string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string nodeCmd = Path.Combine(progFiles, "nodejs", "gemini.cmd");
+            if (File.Exists(nodeCmd)) return nodeCmd;
 
             return "gemini.cmd";
         }

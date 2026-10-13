@@ -57,21 +57,44 @@ namespace Gemini.Extension.UI
 
             // Locate WebDist folder from extension install directory
             string extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string webDistPath = Path.Combine(extensionDir, "Resources", "WebDist");
+            string webDistPath = null;
 
-            // Fallback for development if Resources/WebDist is not yet compiled
-            if (!Directory.Exists(webDistPath))
+            string candidateWebDist = Path.Combine(extensionDir, "Resources", "WebDist");
+            if (File.Exists(Path.Combine(candidateWebDist, "index.html")))
             {
-                // In dev mode, check workspace build output
+                webDistPath = candidateWebDist;
+            }
+            else if (File.Exists(Path.Combine(extensionDir, "index.html")))
+            {
+                webDistPath = extensionDir;
+            }
+            else if (File.Exists(Path.Combine(extensionDir, "WebDist", "index.html")))
+            {
+                webDistPath = Path.Combine(extensionDir, "WebDist");
+            }
+            else
+            {
                 string devPath = Path.GetFullPath(Path.Combine(extensionDir, "..", "..", "..", "..", "build"));
-                if (Directory.Exists(devPath))
+                if (File.Exists(Path.Combine(devPath, "index.html")))
                 {
                     webDistPath = devPath;
                 }
-                else
+            }
+
+            // If not found anywhere, ensure Resources\WebDist exists and populate self-contained fallback index.html
+            if (webDistPath == null)
+            {
+                webDistPath = candidateWebDist;
+                try
                 {
                     Directory.CreateDirectory(webDistPath);
+                    string fallbackIndex = Path.Combine(webDistPath, "index.html");
+                    if (!File.Exists(fallbackIndex))
+                    {
+                        File.WriteAllText(fallbackIndex, GetFallbackHtml());
+                    }
                 }
+                catch { }
             }
 
             // Map virtual host name to the static assets folder
@@ -150,6 +173,15 @@ namespace Gemini.Extension.UI
             WebView.NavigationCompleted += (s, args) =>
             {
                 LoadingOverlay.Visibility = Visibility.Collapsed;
+                if (!args.IsSuccess)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Navigation error: {args.WebErrorStatus}");
+                    try
+                    {
+                        WebView.CoreWebView2.NavigateToString(GetFallbackHtml());
+                    }
+                    catch { }
+                }
             };
         }
 
@@ -181,6 +213,41 @@ namespace Gemini.Extension.UI
             });
 
             WebView.CoreWebView2.PostWebMessageAsString(themeJson);
+        }
+
+        private static string GetFallbackHtml()
+        {
+            try
+            {
+                string extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                string htmlPath = Path.Combine(extensionDir, "Resources", "WebDist", "index.html");
+                if (File.Exists(htmlPath)) return File.ReadAllText(htmlPath);
+
+                string rootHtml = Path.Combine(extensionDir, "index.html");
+                if (File.Exists(rootHtml)) return File.ReadAllText(rootHtml);
+            }
+            catch { }
+
+            return @"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'/>
+<title>Gemini Desktop</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1e1e1e; color: #d4d4d4; padding: 24px; margin: 0; }
+.card { background: #252526; border: 1px solid #3c3c3c; border-radius: 8px; padding: 24px; max-width: 500px; margin: 40px auto; text-align: center; }
+h2 { color: #38bdf8; margin-top: 0; }
+p { color: #9ca3af; font-size: 13px; line-height: 1.6; }
+code { background: #181a1f; color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+<div class='card'>
+  <h2>✨ Gemini Desktop Active</h2>
+  <p>The Visual Studio 2022 extension bridge is running. You can interact with your code via editor commands or set your Gemini CLI path in <code>Tools &gt; Options &gt; Gemini &gt; General</code>.</p>
+</div>
+</body>
+</html>";
         }
     }
 }

@@ -2,68 +2,640 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gemini Desktop - Visual Studio 2022</title>
   <style>
+    :root {
+      --bg: #1e1e1e;
+      --fg: #d4d4d4;
+      --card-bg: #252526;
+      --border: #3c3c3c;
+      --primary: #007acc;
+      --primary-hover: #1f8ad2;
+      --accent: #38bdf8;
+      --user-bubble: #2d2d30;
+      --assistant-bubble: #1f2430;
+      --code-bg: #181a1f;
+      --danger: #f87171;
+      --success: #4ade80;
+      --warning: #fbbf24;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f172a;
-      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--fg);
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
       height: 100vh;
-      margin: 0;
-      padding: 24px;
-      box-sizing: border-box;
-      text-align: center;
+      overflow: hidden;
+      font-size: 13px;
     }
-    .card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 32px;
-      max-width: 480px;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-    }
-    h1 {
-      font-size: 20px;
-      margin-top: 0;
-      color: #38bdf8;
+
+    /* Header */
+    header {
       display: flex;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
       gap: 8px;
     }
-    p {
-      color: #94a3b8;
-      font-size: 14px;
-      line-height: 1.6;
-    }
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      background: #0284c7;
-      color: white;
-      border-radius: 9999px;
-      font-size: 12px;
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-weight: 600;
-      margin-bottom: 16px;
+      font-size: 13px;
+      color: var(--accent);
     }
-    code {
-      background: #0f172a;
-      padding: 2px 6px;
+
+    .brand svg { width: 16px; height: 16px; fill: currentColor; }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    select, button, textarea {
+      font-family: inherit;
+      font-size: 12px;
+    }
+
+    select {
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      outline: none;
+    }
+
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+
+    .btn:hover { background: var(--primary-hover); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { background: var(--border); }
+
+    .btn-danger {
+      background: #b91c1c;
+    }
+    .btn-danger:hover { background: #dc2626; }
+
+    /* Setup & Diagnostic Banner */
+    #setup-banner {
+      display: none;
+      padding: 6px 12px;
+      background: rgba(251, 191, 36, 0.12);
+      border-bottom: 1px solid rgba(251, 191, 36, 0.3);
+      color: var(--warning);
+      font-size: 11px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #setup-banner.visible { display: flex; }
+
+    /* Chat Messages */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .welcome-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin: auto;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    .welcome-card h2 {
+      font-size: 16px;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    .welcome-card p {
+      color: #9ca3af;
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .quick-prompts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .quick-prompt-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--fg);
+      padding: 6px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+      font-size: 11px;
+    }
+
+    .quick-prompt-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .message-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 90%;
+    }
+
+    .message-row.user {
+      align-self: flex-end;
+    }
+
+    .message-row.assistant {
+      align-self: flex-start;
+      max-width: 98%;
+    }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 8px;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .message-row.user .bubble {
+      background: var(--user-bubble);
+      border: 1px solid var(--border);
+      color: #fff;
+    }
+
+    .message-row.assistant .bubble {
+      background: var(--assistant-bubble);
+      border: 1px solid var(--border);
+    }
+
+    .sender-label {
+      font-size: 10px;
+      color: #888;
+      margin-left: 2px;
+    }
+
+    .message-row.user .sender-label {
+      align-self: flex-end;
+      margin-right: 2px;
+    }
+
+    pre code {
+      display: block;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin: 6px 0;
+    }
+
+    /* Context Attachment Pill */
+    #context-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent);
+      padding: 4px 8px;
+      margin: 0 12px 6px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    #context-badge.visible { display: flex; }
+
+    #context-badge button {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    /* Input Footer */
+    footer {
+      padding: 8px 12px 12px 12px;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    textarea {
+      flex: 1;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      resize: none;
+      min-height: 48px;
+      max-height: 160px;
+      outline: none;
+      line-height: 1.4;
+    }
+
+    textarea:focus { border-color: var(--accent); }
+
+    .action-buttons {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* Tool Permission Modal */
+    #tool-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    #tool-modal-overlay.visible { display: flex; }
+
+    .tool-modal {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .tool-modal h3 {
+      font-size: 14px;
+      color: var(--warning);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tool-details {
+      background: var(--bg);
+      padding: 8px;
       border-radius: 4px;
       font-family: Consolas, monospace;
-      color: #38bdf8;
+      font-size: 11px;
+      margin: 8px 0 12px 0;
+      max-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <span class="badge">Visual Studio 2022 VSIX Host</span>
-    <h1>✨ Gemini Desktop</h1>
-    <p>Extension initialized successfully! Once frontend compilation is executed via <code>npm run build:vsix</code>, the full Svelte 5 chat interface, ACP streaming, and model routing UI will mount here automatically.</p>
+
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 24 24"><path d="M12 2L14.4 7.6L20 10L14.4 12.4L12 18L9.6 12.4L4 10L9.6 7.6L12 2Z"/></svg>
+      <span>Gemini Desktop</span>
+    </div>
+    <div class="header-controls">
+      <select id="model-select">
+        <option value="gemini-3.8-flash" selected>Gemini 3.8 Flash</option>
+        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+        <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+      </select>
+      <button class="btn btn-secondary" id="btn-new-chat" title="Start new session">New Chat</button>
+    </div>
+  </header>
+
+  <div id="setup-banner">
+    <span id="setup-banner-text">ℹ️ Gemini CLI running via ACP bridge. Set custom path in Tools &gt; Options &gt; Gemini if needed.</span>
+    <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 10px;" onclick="document.getElementById('setup-banner').classList.remove('visible')">✕</button>
   </div>
+
+  <div id="messages">
+    <div class="welcome-card" id="welcome-card">
+      <h2>✨ Welcome to Gemini Desktop</h2>
+      <p>Autonomous AI pair programming inside Visual Studio 2022. Select code in any editor file and right-click to Ask or Explain.</p>
+      <div class="quick-prompts">
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Explain this code and suggest performance improvements')">💡 Explain active code</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Write comprehensive unit tests with edge cases')">🧪 Generate unit tests</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Analyze security vulnerabilities and edge case bugs')">🛡️ Audit security bugs</button>
+        <button class="quick-prompt-btn" onclick="sendQuickPrompt('Refactor this implementation for clean architecture')">⚡ Clean architecture refactor</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="context-badge">
+    <span id="context-badge-text">📎 Editor Context</span>
+    <button onclick="clearContext()">✕</button>
+  </div>
+
+  <footer>
+    <div class="input-row">
+      <textarea id="prompt-input" placeholder="Ask Gemini about your code or project... (Enter to send, Shift+Enter for newline)"></textarea>
+      <div class="action-buttons">
+        <button class="btn" id="btn-send">Send</button>
+        <button class="btn btn-danger" id="btn-cancel" style="display: none;">Cancel</button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Tool Permission Dialog -->
+  <div id="tool-modal-overlay">
+    <div class="tool-modal">
+      <h3>⚠️ Tool Permission Requested</h3>
+      <p id="tool-modal-desc">The assistant is requesting permission to execute an action on your system.</p>
+      <div class="tool-details" id="tool-modal-details"></div>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="btn-tool-reject">Deny</button>
+        <button class="btn btn-secondary" id="btn-tool-allow-always">Allow Session</button>
+        <button class="btn" id="btn-tool-allow">Allow Once</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var currentSessionId = 'vs-session-' + Date.now();
+      var isStreaming = false;
+      var activeAssistantRow = null;
+      var activeAssistantText = '';
+      var activeContextCode = '';
+
+      var messagesContainer = document.getElementById('messages');
+      var welcomeCard = document.getElementById('welcome-card');
+      var promptInput = document.getElementById('prompt-input');
+      var btnSend = document.getElementById('btn-send');
+      var btnCancel = document.getElementById('btn-cancel');
+      var btnNewChat = document.getElementById('btn-new-chat');
+      var modelSelect = document.getElementById('model-select');
+      var contextBadge = document.getElementById('context-badge');
+      var contextBadgeText = document.getElementById('context-badge-text');
+      var setupBanner = document.getElementById('setup-banner');
+
+      // Native invoke helper
+      function invoke(cmd, args) {
+        if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+          return window.__TAURI_INTERNALS__.invoke(cmd, args);
+        }
+        return Promise.reject(new Error("Host bridge not available"));
+      }
+
+      // Check environment
+      invoke('check_gemini_env', {}).then(function(env) {
+        if (env && !env.installed) {
+          setupBanner.classList.add('visible');
+          document.getElementById('setup-banner-text').textContent = '⚠️ Gemini CLI not detected. Install via "npm install -g @google/gemini-cli" or configure path in Tools > Options > Gemini.';
+        }
+      }).catch(function() {});
+
+      // Context attachment
+      window.clearContext = function() {
+        activeContextCode = '';
+        contextBadge.classList.remove('visible');
+      };
+
+      window.sendQuickPrompt = function(text) {
+        promptInput.value = text;
+        sendMessage();
+      };
+
+      // Message Rendering
+      function appendUserMessage(text) {
+        if (welcomeCard) welcomeCard.style.display = 'none';
+
+        var row = document.createElement('div');
+        row.className = 'message-row user';
+        row.innerHTML = '<span class="sender-label">You</span><div class="bubble">' + escapeHtml(text) + '</div>';
+        messagesContainer.appendChild(row);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+
+      function startAssistantMessage() {
+        if (welcomeCard) welcomeCard.style.display = 'none';
+
+        activeAssistantText = '';
+        var row = document.createElement('div');
+        row.className = 'message-row assistant';
+        row.innerHTML = '<span class="sender-label">Gemini</span><div class="bubble">...</div>';
+        messagesContainer.appendChild(row);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        activeAssistantRow = row;
+        setStreaming(true);
+      }
+
+      function updateAssistantMessage(delta, isDone) {
+        if (!activeAssistantRow) return;
+        activeAssistantText += delta;
+        var bubble = activeAssistantRow.querySelector('.bubble');
+        if (bubble) {
+          bubble.innerHTML = formatMarkdown(activeAssistantText);
+        }
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        if (isDone) {
+          setStreaming(false);
+          activeAssistantRow = null;
+        }
+      }
+
+      function setStreaming(streaming) {
+        isStreaming = streaming;
+        btnSend.style.display = streaming ? 'none' : 'inline-block';
+        btnCancel.style.display = streaming ? 'inline-block' : 'none';
+        promptInput.disabled = streaming;
+      }
+
+      function sendMessage() {
+        var text = promptInput.value.trim();
+        if (!text || isStreaming) return;
+
+        var fullPrompt = text;
+        if (activeContextCode) {
+          fullPrompt = "Context Code:\n```\n" + activeContextCode + "\n```\n\nPrompt: " + text;
+          clearContext();
+        }
+
+        appendUserMessage(text);
+        promptInput.value = '';
+        startAssistantMessage();
+
+        var selectedModel = modelSelect.value;
+        invoke('send_prompt', {
+          sessionId: currentSessionId,
+          prompt: fullPrompt,
+          model: selectedModel
+        }).catch(function(err) {
+          updateAssistantMessage("\n[Error sending prompt: " + (err.message || err) + "]", true);
+        });
+      }
+
+      btnSend.addEventListener('click', sendMessage);
+
+      btnCancel.addEventListener('click', function() {
+        invoke('cancel_prompt', { sessionId: currentSessionId }).then(function() {
+          updateAssistantMessage("\n[Cancelled by user]", true);
+        });
+      });
+
+      btnNewChat.addEventListener('click', function() {
+        currentSessionId = 'vs-session-' + Date.now();
+        messagesContainer.innerHTML = '';
+        if (welcomeCard) {
+          welcomeCard.style.display = 'block';
+          messagesContainer.appendChild(welcomeCard);
+        }
+        setStreaming(false);
+      });
+
+      promptInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      // Stream Event Listeners
+      if (window.__TAURI_EVENT_LISTEN__) {
+        window.__TAURI_EVENT_LISTEN__('acp-chunk', function(data) {
+          var payload = data.payload || {};
+          updateAssistantMessage(payload.delta || '', payload.is_done || false);
+        });
+
+        window.__TAURI_EVENT_LISTEN__('acp-error', function(data) {
+          updateAssistantMessage("\n[Error: " + data.payload + "]", true);
+        });
+
+        window.__TAURI_EVENT_LISTEN__('acp-tool-permission', function(data) {
+          var payload = data.payload || {};
+          showToolPermissionModal(payload);
+        });
+
+        window.__TAURI_EVENT_LISTEN__('vs-theme-updated', function(data) {
+          var p = data.payload || {};
+          if (p.bg) document.documentElement.style.setProperty('--bg', p.bg);
+          if (p.fg) document.documentElement.style.setProperty('--fg', p.fg);
+        });
+
+        window.__TAURI_EVENT_LISTEN__('vs-context-action', function(data) {
+          var p = data.payload || {};
+          if (p.code) {
+            activeContextCode = p.code;
+            contextBadge.classList.add('visible');
+            contextBadgeText.textContent = '📎 Context: ' + (p.file || 'Editor Selection') + ' (' + p.code.length + ' chars)';
+          }
+          if (p.action === 'explain') {
+            promptInput.value = 'Please explain this selected code and highlight any potential bugs or performance bottlenecks.';
+            sendMessage();
+          }
+        });
+
+        window.__TAURI_EVENT_LISTEN__('gemini-prefill-prompt', function(data) {
+          var p = data.payload || {};
+          if (p.prompt) promptInput.value = p.prompt;
+          promptInput.focus();
+        });
+      }
+
+      // Tool Permission Modal
+      var modalOverlay = document.getElementById('tool-modal-overlay');
+      var modalDetails = document.getElementById('tool-modal-details');
+      var currentToolRequest = null;
+
+      function showToolPermissionModal(req) {
+        currentToolRequest = req;
+        modalDetails.textContent = "Tool: " + (req.tool_name || 'unknown') + "\nAction: " + (req.title || 'Execute operation');
+        modalOverlay.classList.add('visible');
+      }
+
+      function resolveTool(optionId, allowed) {
+        if (!currentToolRequest) return;
+        modalOverlay.classList.remove('visible');
+        invoke('respond_tool_permission', {
+          requestId: currentToolRequest.request_id,
+          optionId: optionId,
+          allowed: allowed
+        });
+        currentToolRequest = null;
+      }
+
+      document.getElementById('btn-tool-allow').onclick = function() { resolveTool('allow', true); };
+      document.getElementById('btn-tool-allow-always').onclick = function() { resolveTool('allow_always', true); };
+      document.getElementById('btn-tool-reject').onclick = function() { resolveTool('reject', false); };
+
+      // Helper utilities
+      function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      function formatMarkdown(text) {
+        // Fast lightweight markdown parsing for code blocks and inline code
+        var escaped = escapeHtml(text);
+        escaped = escaped.replace(/```([a-zA-Z0-9]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+          return '<pre><code class="language-' + lang + '">' + code + '</code></pre>';
+        });
+        escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+        escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        return escaped;
+      }
+
+    })();
+  </script>
 </body>
 </html>
