@@ -33,9 +33,12 @@ namespace Gemini.Extension.Services
             diffService.OpenComparisonWindow2(
                 originalFilePath,
                 tempProposedFile,
+                title,
+                $"{Path.GetFileName(originalFilePath)} Difference",
                 $"{Path.GetFileName(originalFilePath)} (Current)",
                 $"{Path.GetFileName(originalFilePath)} (Proposed)",
-                title,
+                $"{Path.GetFileName(originalFilePath)} (Inline)",
+                null,
                 0 // default flags
             );
         }

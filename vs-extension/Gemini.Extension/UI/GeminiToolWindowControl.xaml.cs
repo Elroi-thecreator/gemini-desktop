@@ -163,8 +163,8 @@ namespace Gemini.Extension.UI
             if (WebView?.CoreWebView2 == null) return;
 
             // Query VS theme colors
-            var bg = VSColorTheme.GetThemedGDIColor(EnvironmentColors.ToolWindowBackgroundColorKey);
-            var fg = VSColorTheme.GetThemedGDIColor(EnvironmentColors.ToolWindowTextColorKey);
+            var bg = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowBackgroundColorKey);
+            var fg = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowTextColorKey);
 
             bool isDark = (bg.R * 0.299 + bg.G * 0.587 + bg.B * 0.114) < 128;
 
