@@ -2,10 +2,6 @@ name: Build Visual Studio Extension (VSIX)
 
 on:
   push:
-    branches:
-      - main
-      - suresh-main-work
-      - "**"
     tags:
       - "v*"
   workflow_dispatch:
