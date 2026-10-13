@@ -11,7 +11,7 @@ namespace Gemini.Extension
     [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     [Guid(GeminiPackage.PackageGuidString)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
-    [ProvideToolWindow(typeof(UI.GeminiToolWindow), Style = VsDockStyle.Tabbed, Window = ToolWindowGuids.Outputwindow, MultiInstances = false)]
+    [ProvideToolWindow(typeof(UI.GeminiToolWindow), Style = VsDockStyle.Tabbed, MultiInstances = false)]
     [ProvideOptionPage(typeof(Options.GeminiOptionsPage), "Gemini", "General", 0, 0, true)]
     public sealed class GeminiPackage : AsyncPackage
     {
