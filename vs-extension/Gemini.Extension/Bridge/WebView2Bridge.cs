@@ -90,17 +90,24 @@ namespace Gemini.Extension.Bridge
                 switch (command)
                 {
                     case "check_gemini_env":
+                        string resolvedCli = pkg.AcpClient.FindGeminiCliPath();
+                        bool isInstalled = !string.IsNullOrEmpty(resolvedCli) && File.Exists(resolvedCli);
                         result = new
                         {
-                            installed = true,
-                            cli_path = "gemini.cmd",
-                            cli_version = "v0.1.0-vsix",
+                            installed = isInstalled,
+                            cli_path = resolvedCli ?? "",
+                            cli_version = isInstalled ? "auto-detected" : "not found",
                             node_version = "v20.x",
                             auth_method = "oauth",
-                            user_email = "visualstudio@developer.local",
-                            is_logged_in = true,
-                            error_message = (string)null
+                            user_email = isInstalled ? "developer@local" : null,
+                            is_logged_in = isInstalled,
+                            error_message = isInstalled ? (string)null : "Gemini CLI not found on this machine. Please install via 'npm install -g @google/gemini-cli' or configure its path in Tools > Options > Gemini > General."
                         };
+                        break;
+
+                    case "get_pending_context_action":
+                        result = pkg.PendingContextAction;
+                        pkg.PendingContextAction = null;
                         break;
 
                     case "get_workspaces":
@@ -160,7 +167,12 @@ namespace Gemini.Extension.Bridge
                         if (!pkg.AcpClient.IsRunning)
                         {
                             string activeSolDir = await pkg.IdeContextService.GetSolutionDirectoryAsync();
-                            await pkg.AcpClient.StartAsync(activeSolDir);
+                            bool started = await pkg.AcpClient.StartAsync(activeSolDir);
+                            if (!started)
+                            {
+                                errorMessage = "Gemini CLI could not be started. Check Tools > Options > Gemini > General or verify Gemini CLI is installed.";
+                                break;
+                            }
                         }
 
                         await pkg.AcpClient.SendPromptAsync(promptSid, promptText, model);

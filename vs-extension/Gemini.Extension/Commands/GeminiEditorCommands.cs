@@ -50,11 +50,17 @@ namespace Gemini.Extension.Commands
             if (pkg == null || pkg.IdeContextService == null) return;
 
             var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
-            pkg.Bridge?.DispatchEvent("vs-context-action", new
+            var payload = new
             {
                 action = "selection_context",
+                code = ctx?.SelectedText,
+                file = ctx?.FileName,
+                language = ctx?.Language,
                 context = ctx
-            });
+            };
+
+            pkg.PendingContextAction = payload;
+            pkg.Bridge?.DispatchEvent("vs-context-action", payload);
         }
 
         private async void ExecuteExplainCode(object sender, EventArgs e)
@@ -70,12 +76,18 @@ namespace Gemini.Extension.Commands
                 ? $"Please explain the code in {ctx?.FileName ?? "the current file"}."
                 : $"Please explain the selected code in {ctx?.FileName} (lines {ctx?.StartLine}-{ctx?.EndLine}):\n\n```{ctx?.Language}\n{ctx?.SelectedText}\n```";
 
-            pkg.Bridge?.DispatchEvent("vs-context-action", new
+            var payload = new
             {
                 action = "auto_prompt",
+                code = ctx?.SelectedText,
+                file = ctx?.FileName,
+                language = ctx?.Language,
                 prompt = prompt,
                 context = ctx
-            });
+            };
+
+            pkg.PendingContextAction = payload;
+            pkg.Bridge?.DispatchEvent("vs-context-action", payload);
         }
 
         private async void ExecuteFixErrors(object sender, EventArgs e)
@@ -95,12 +107,15 @@ namespace Gemini.Extension.Commands
                 sb.AppendLine($"- **{diag.FileName}** (line {diag.Line}, col {diag.Column}): {diag.Description}");
             }
 
-            pkg.Bridge?.DispatchEvent("vs-context-action", new
+            var payload = new
             {
                 action = "auto_prompt",
                 prompt = sb.ToString(),
                 diagnostics = diagnostics
-            });
+            };
+
+            pkg.PendingContextAction = payload;
+            pkg.Bridge?.DispatchEvent("vs-context-action", payload);
         }
 
         private void ShowToolWindow()

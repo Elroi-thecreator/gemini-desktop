@@ -573,17 +573,26 @@
           if (p.fg) document.documentElement.style.setProperty('--fg', p.fg);
         });
 
-        window.__TAURI_EVENT_LISTEN__('vs-context-action', function(data) {
-          var p = data.payload || {};
-          if (p.code) {
-            activeContextCode = p.code;
+        function handleContextAction(p) {
+          if (!p) return;
+          var code = p.code || (p.context && (p.context.SelectedText || p.context.selectedText));
+          var file = p.file || (p.context && (p.context.FileName || p.context.fileName));
+          if (code) {
+            activeContextCode = code;
             contextBadge.classList.add('visible');
-            contextBadgeText.textContent = '📎 Context: ' + (p.file || 'Editor Selection') + ' (' + p.code.length + ' chars)';
+            contextBadgeText.textContent = '📎 Context: ' + (file || 'Editor Selection') + ' (' + code.length + ' chars)';
           }
-          if (p.action === 'explain') {
+          if (p.action === 'auto_prompt' && p.prompt) {
+            promptInput.value = p.prompt;
+            sendMessage();
+          } else if (p.action === 'explain') {
             promptInput.value = 'Please explain this selected code and highlight any potential bugs or performance bottlenecks.';
             sendMessage();
           }
+        }
+
+        window.__TAURI_EVENT_LISTEN__('vs-context-action', function(data) {
+          handleContextAction(data.payload);
         });
 
         window.__TAURI_EVENT_LISTEN__('gemini-prefill-prompt', function(data) {
@@ -591,6 +600,11 @@
           if (p.prompt) promptInput.value = p.prompt;
           promptInput.focus();
         });
+
+        // Query pending context action on startup if any
+        invoke('get_pending_context_action').then(function(pending) {
+          if (pending) handleContextAction(pending);
+        }).catch(function() {});
       }
 
       // Tool Permission Modal

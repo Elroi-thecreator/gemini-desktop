@@ -29,6 +29,7 @@ namespace Gemini.Extension
         public Services.DiagnosticsService DiagnosticsService { get; private set; }
         public Services.StorageService StorageService { get; private set; }
         public Bridge.WebView2Bridge Bridge { get; set; }
+        public object PendingContextAction { get; set; }
 
         public Options.GeminiOptionsPage Options
         {

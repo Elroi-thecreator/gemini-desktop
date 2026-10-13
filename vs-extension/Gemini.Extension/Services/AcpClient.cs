@@ -31,46 +31,68 @@ namespace Gemini.Extension.Services
 
         public bool IsRunning => cliProcess != null && !cliProcess.HasExited;
 
-        public async Task StartAsync(string workingDirectory = null, string approvalMode = "default")
+        public async Task<bool> StartAsync(string workingDirectory = null, string approvalMode = "default")
         {
             Stop();
 
             cts = new CancellationTokenSource();
             string cliPath = FindGeminiCliPath();
 
-            var startInfo = new ProcessStartInfo
+            if (string.IsNullOrEmpty(cliPath))
             {
-                FileName = cliPath,
-                Arguments = $"--approval-mode {approvalMode} --skip-trust",
-                WorkingDirectory = string.IsNullOrEmpty(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
-            };
+                OnError?.Invoke("Gemini CLI executable was not found on this machine. Please install via 'npm install -g @google/gemini-cli' or configure its path in Tools > Options > Gemini > General.");
+                return false;
+            }
 
-            cliProcess = new Process { StartInfo = startInfo };
-            cliProcess.Start();
-
-            // Supervise process with Win32 Job Object
-            supervisor.AssignProcess(cliProcess);
-
-            stdinWriter = cliProcess.StandardInput;
-            stdoutReader = cliProcess.StandardOutput;
-            stderrReader = cliProcess.StandardError;
-
-            _ = Task.Run(() => ReadStdoutLoopAsync(cts.Token));
-            _ = Task.Run(() => ReadStderrLoopAsync(cts.Token));
-
-            // Perform ACP initialize handshake
-            await SendRequestAsync("initialize", new
+            try
             {
-                protocolVersion = 1,
-                clientCapabilities = new { terminal = true }
-            });
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = cliPath,
+                    Arguments = $"--approval-mode {approvalMode} --skip-trust",
+                    WorkingDirectory = string.IsNullOrEmpty(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
+                    UseShellExecute = false,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
+                };
+
+                cliProcess = new Process { StartInfo = startInfo };
+                if (!cliProcess.Start())
+                {
+                    OnError?.Invoke($"Failed to launch process for Gemini CLI at '{cliPath}'.");
+                    return false;
+                }
+
+                // Supervise process with Win32 Job Object
+                supervisor.AssignProcess(cliProcess);
+
+                stdinWriter = cliProcess.StandardInput;
+                stdoutReader = cliProcess.StandardOutput;
+                stderrReader = cliProcess.StandardError;
+
+                _ = Task.Run(() => ReadStdoutLoopAsync(cts.Token));
+                _ = Task.Run(() => ReadStderrLoopAsync(cts.Token));
+
+                // Perform ACP initialize handshake
+                await SendRequestAsync("initialize", new
+                {
+                    protocolVersion = 1,
+                    clientCapabilities = new { terminal = true }
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Error starting CLI at '{cliPath}': {ex}");
+                OnError?.Invoke($"Failed to start Gemini CLI at '{cliPath}': {ex.Message}. Verify Gemini CLI is installed ('npm install -g @google/gemini-cli') or set its path in Tools > Options > Gemini > General.");
+                Stop();
+                return false;
+            }
         }
 
         public async Task<string> CreateSessionAsync(string cwd = null)
@@ -90,7 +112,11 @@ namespace Gemini.Extension.Services
 
         public async Task SendPromptAsync(string sessionId, string prompt, string model = null)
         {
-            if (!IsRunning) await StartAsync();
+            if (!IsRunning)
+            {
+                bool started = await StartAsync();
+                if (!started) return;
+            }
 
             if (!string.IsNullOrEmpty(model))
             {
@@ -125,10 +151,10 @@ namespace Gemini.Extension.Services
             }
         }
 
-        public async Task RestartAsync(string workingDirectory = null, string approvalMode = "default")
+        public async Task<bool> RestartAsync(string workingDirectory = null, string approvalMode = "default")
         {
             Stop();
-            await StartAsync(workingDirectory, approvalMode);
+            return await StartAsync(workingDirectory, approvalMode);
         }
 
         public async Task RespondToolPermissionAsync(long requestId, string optionId, bool allowed)
@@ -320,46 +346,110 @@ namespace Gemini.Extension.Services
             return "";
         }
 
-        private string FindGeminiCliPath()
+        public string FindGeminiCliPath()
         {
             // 1. Check user-configured path in Tools > Options > Gemini > General
             try
             {
                 var options = GeminiPackage.Instance?.Options;
-                if (options != null && !string.IsNullOrWhiteSpace(options.GeminiCliPath) && File.Exists(options.GeminiCliPath))
+                if (options != null && !string.IsNullOrWhiteSpace(options.GeminiCliPath))
                 {
-                    return options.GeminiCliPath;
+                    string configured = options.GeminiCliPath.Trim().Trim('"');
+                    if (File.Exists(configured)) return configured;
                 }
             }
             catch { }
 
-            // 2. Check PATH
+            // 2. Dynamic system search via where.exe
+            string[] whereQueries = { "gemini", "gemini.cmd", "gemini.exe" };
+            foreach (var query in whereQueries)
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "where.exe",
+                        Arguments = query,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true
+                    };
+                    using (var p = Process.Start(psi))
+                    {
+                        string line;
+                        while ((line = p.StandardOutput.ReadLine()) != null)
+                        {
+                            string candidate = line.Trim();
+                            if (File.Exists(candidate))
+                            {
+                                return candidate;
+                            }
+                        }
+                        p.WaitForExit(600);
+                    }
+                }
+                catch { }
+            }
+
+            // 3. Check system and user PATH
             string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+            string[] extensions = { "gemini.cmd", "gemini.exe", "gemini.bat" };
             foreach (var dir in pathEnv.Split(';'))
             {
                 if (string.IsNullOrWhiteSpace(dir)) continue;
-                string exe = Path.Combine(dir.Trim(), "gemini.cmd");
-                if (File.Exists(exe)) return exe;
-                string exePlain = Path.Combine(dir.Trim(), "gemini.exe");
-                if (File.Exists(exePlain)) return exePlain;
+                string cleanDir = dir.Trim().Trim('"');
+                foreach (var ext in extensions)
+                {
+                    string candidate = Path.Combine(cleanDir, ext);
+                    if (File.Exists(candidate)) return candidate;
+                }
             }
 
-            // 3. Default npm global path (%APPDATA%\npm\gemini.cmd)
+            // 4. Default npm global path (%APPDATA%\npm\gemini.cmd)
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string npmCmd = Path.Combine(appData, "npm", "gemini.cmd");
             if (File.Exists(npmCmd)) return npmCmd;
 
-            // 4. Default WinGet path (%LOCALAPPDATA%\Microsoft\WinGet\Links\gemini.exe)
+            // 5. Default WinGet path (%LOCALAPPDATA%\Microsoft\WinGet\Links\gemini.exe)
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string wingetExe = Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "gemini.exe");
             if (File.Exists(wingetExe)) return wingetExe;
 
-            // 5. Default Program Files Node.js path
+            // 6. Default Program Files Node.js paths
             string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             string nodeCmd = Path.Combine(progFiles, "nodejs", "gemini.cmd");
             if (File.Exists(nodeCmd)) return nodeCmd;
 
-            return "gemini.cmd";
+            string progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string nodeCmdX86 = Path.Combine(progFilesX86, "nodejs", "gemini.cmd");
+            if (File.Exists(nodeCmdX86)) return nodeCmdX86;
+
+            // 7. LocalAppData Programs Node.js path
+            string localNodeCmd = Path.Combine(localAppData, "Programs", "nodejs", "gemini.cmd");
+            if (File.Exists(localNodeCmd)) return localNodeCmd;
+
+            // 8. Yarn / pnpm global bins
+            string yarnCmd = Path.Combine(localAppData, "Yarn", "bin", "gemini.cmd");
+            if (File.Exists(yarnCmd)) return yarnCmd;
+            string pnpmCmd = Path.Combine(localAppData, "pnpm", "gemini.cmd");
+            if (File.Exists(pnpmCmd)) return pnpmCmd;
+
+            // 9. Scoop, Volta, Chocolatey package managers
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string scoopCmd = Path.Combine(userProfile, "scoop", "shims", "gemini.cmd");
+            if (File.Exists(scoopCmd)) return scoopCmd;
+
+            string voltaCmd = Path.Combine(localAppData, "Volta", "bin", "gemini.cmd");
+            if (File.Exists(voltaCmd)) return voltaCmd;
+
+            string voltaProfile = Path.Combine(userProfile, ".volta", "bin", "gemini.cmd");
+            if (File.Exists(voltaProfile)) return voltaProfile;
+
+            string commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string chocoCmd = Path.Combine(commonAppData, "chocolatey", "bin", "gemini.exe");
+            if (File.Exists(chocoCmd)) return chocoCmd;
+
+            return null;
         }
 
         public void Stop()

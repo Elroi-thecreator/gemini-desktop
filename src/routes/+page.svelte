@@ -86,6 +86,7 @@
   let unlistenError: UnlistenFn | null = null;
   let unlistenModeUpdate: UnlistenFn | null = null;
   let unlistenStderr: UnlistenFn | null = null;
+  let unlistenVsContext: UnlistenFn | null = null;
 
   onMount(async () => {
     // 0. Initialize theme & dynamic app version
@@ -307,8 +308,24 @@
       }
     });
 
+    try {
+      unlistenVsContext = await listen<any>("vs-context-action", (event) => {
+        if (event.payload) {
+          processVsContextAction(event.payload);
+        }
+      });
+    } catch {}
+
     window.addEventListener("keydown", handleGlobalShortcuts);
     window.addEventListener("message", handleVsMessage);
+
+    // 4b. Query any pending Visual Studio context action
+    try {
+      const pending = await invoke<any>("get_pending_context_action");
+      if (pending) {
+        processVsContextAction(pending);
+      }
+    } catch {}
 
     // 5. Check for updates on WinGet in the background (3s delay)
     setTimeout(() => {
@@ -316,20 +333,30 @@
     }, 3000);
   });
 
+  function processVsContextAction(payload: any) {
+    if (!payload) return;
+    if (payload.action === "auto_prompt" && payload.prompt) {
+      handleSendMessage(payload.prompt);
+    } else if (payload.action === "selection_context") {
+      const ctx = payload.context || {};
+      const code = payload.code || ctx.SelectedText || ctx.selectedText || "";
+      const file = payload.file || ctx.FileName || ctx.fileName || "Active file";
+      const lang = payload.language || ctx.Language || ctx.language || "";
+      const startLine = ctx.StartLine ?? ctx.startLine;
+      const endLine = ctx.EndLine ?? ctx.endLine;
+      const lineInfo = startLine && endLine ? ` (lines ${startLine}-${endLine})` : "";
+      const note = code
+        ? `Selected code from ${file}${lineInfo}:\n\`\`\`${lang}\n${code}\n\`\`\`\n`
+        : `Active file: ${file}\n`;
+      window.dispatchEvent(new CustomEvent("gemini-prefill-prompt", { detail: note }));
+    }
+  }
+
   function handleVsMessage(event: MessageEvent) {
     const msg = event?.data;
     if (!msg || msg.type !== "event") return;
     if (msg.event === "vs-context-action" && msg.payload) {
-      const payload = msg.payload;
-      if (payload.action === "auto_prompt" && payload.prompt) {
-        handleSendMessage(payload.prompt);
-      } else if (payload.action === "selection_context" && payload.context) {
-        const ctx = payload.context;
-        const note = ctx.SelectedText
-          ? `Selected code from ${ctx.FileName} (lines ${ctx.StartLine}-${ctx.EndLine}):\n\`\`\`${ctx.Language || ""}\n${ctx.SelectedText}\n\`\`\`\n`
-          : `Active file: ${ctx.FileName}\n`;
-        window.dispatchEvent(new CustomEvent("gemini-prefill-prompt", { detail: note }));
-      }
+      processVsContextAction(msg.payload);
     }
   }
 
@@ -365,6 +392,7 @@
     if (unlistenError) unlistenError();
     if (unlistenModeUpdate) unlistenModeUpdate();
     if (unlistenStderr) unlistenStderr();
+    if (unlistenVsContext) unlistenVsContext();
     window.removeEventListener("keydown", handleGlobalShortcuts);
     window.removeEventListener("message", handleVsMessage);
   });

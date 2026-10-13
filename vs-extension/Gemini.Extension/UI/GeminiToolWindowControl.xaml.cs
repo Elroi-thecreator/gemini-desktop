@@ -239,6 +239,18 @@ namespace Gemini.Extension.UI
                     }
                     catch { }
                 }
+                else if (GeminiPackage.Instance?.PendingContextAction != null)
+                {
+                    try
+                    {
+                        var pending = GeminiPackage.Instance.PendingContextAction;
+                        bridge?.DispatchEvent("vs-context-action", pending);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Failed to replay pending action: {ex.Message}");
+                    }
+                }
             };
 
             // Navigate to SPA entrypoint using CoreWebView2.Navigate
