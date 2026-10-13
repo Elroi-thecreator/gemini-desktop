@@ -9,7 +9,7 @@ on:
 jobs:
   build-vsix:
     name: Build & Package VSIX
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
 
@@ -33,18 +33,14 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
-
-      - name: Setup Visual Studio developer command prompt
-        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          vs-version: "17.0"
 
       - name: Restore NuGet packages
-        run: |
-          nuget restore vs-extension/Gemini.VisualStudio.sln -NonInteractive -Verbosity detailed
-          dotnet restore vs-extension/Gemini.VisualStudio.sln || echo "dotnet restore skipped if not applicable"
-          msbuild vs-extension/Gemini.VisualStudio.sln /t:Restore /p:Configuration=Release /p:Platform="Any CPU" /p:VisualStudioVersion=17.0
+        run: nuget restore vs-extension/Gemini.VisualStudio.sln
 
       - name: Build VSIX Package
-        run: msbuild vs-extension/Gemini.VisualStudio.sln /p:Configuration=Release /p:Platform="Any CPU" /p:DeployExtension=false /p:CreateVsixContainer=true /p:VisualStudioVersion=17.0 /restore /v:normal /fl "/flp:logfile=msbuild.log;verbosity=detailed"
+        run: msbuild vs-extension/Gemini.VisualStudio.sln /p:Configuration=Release /p:Platform="Any CPU" /p:DeployExtension=false /p:CreateVsixContainer=true /p:VisualStudioVersion=17.0 /v:normal /fl "/flp:logfile=msbuild.log;verbosity=detailed"
 
       - name: Upload Build Log on Failure
         if: failure()
