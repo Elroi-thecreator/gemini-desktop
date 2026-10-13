@@ -34,9 +34,13 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Setup Visual Studio developer command prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Restore NuGet packages
         run: |
-          nuget restore vs-extension/Gemini.VisualStudio.sln
+          nuget restore vs-extension/Gemini.VisualStudio.sln -NonInteractive -Verbosity detailed
+          dotnet restore vs-extension/Gemini.VisualStudio.sln || echo "dotnet restore skipped if not applicable"
           msbuild vs-extension/Gemini.VisualStudio.sln /t:Restore /p:Configuration=Release /p:VisualStudioVersion=17.0
 
       - name: Build VSIX Package
