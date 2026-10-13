@@ -10,9 +10,8 @@
     <AssemblyName>Gemini.Extension</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 
-    <!-- Pre-initialize intermediate and template output paths so VSSDK targets have valid paths -->
-    <IntermediateOutputPath Condition="'$(IntermediateOutputPath)' == ''">obj\$(Configuration)\$(TargetFramework)\</IntermediateOutputPath>
-    <TemplateOutputDirectory Condition="'$(TemplateOutputDirectory)' == ''">$(IntermediateOutputPath)</TemplateOutputDirectory>
+    <!-- Pre-initialize intermediate output path so Sdk.targets appends TargetFramework to get obj\$(Configuration)\$(TargetFramework)\ -->
+    <IntermediateOutputPath Condition="'$(IntermediateOutputPath)' == ''">obj\$(Configuration)\</IntermediateOutputPath>
 
     <!-- VSSDK Properties -->
     <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>

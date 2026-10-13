@@ -5,8 +5,8 @@
     <DisplayName>Gemini Desktop for Visual Studio 2022</DisplayName>
     <Description xml:space="preserve">Official AI Pair Programmer and Autonomous Agent powered by Gemini CLI, ACP streaming, and Google Gemini models inside Visual Studio 2022.</Description>
     <MoreInfo>https://github.com/gemini-desktop</MoreInfo>
-    <Icon>Resources\Icon.png</Icon>
     <License>LICENSE</License>
+    <Icon>Resources\Icon.png</Icon>
     <Tags>gemini, ai, copilot, assistant, llm, google, chat, code</Tags>
   </Metadata>
   <Installation>
