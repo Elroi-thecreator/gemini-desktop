@@ -23,7 +23,7 @@
     X,
     FileCode,
   } from "lucide-svelte";
-  import { tick } from "svelte";
+  import { tick, onMount, onDestroy } from "svelte";
 
   let {
     workspace = null,
@@ -56,6 +56,25 @@
   let mentionMatchStart = $state(0);
   let mentionSelectedIndex = $state(0);
   let dismissedMatchStart: number | null = $state(null);
+
+  onMount(() => {
+    function handlePrefill(e: Event) {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail) {
+        inputPrompt = (inputPrompt ? inputPrompt + "\n\n" : "") + customEvent.detail;
+        tick().then(() => {
+          if (textareaElem) {
+            textareaElem.focus();
+            textareaElem.setSelectionRange(inputPrompt.length, inputPrompt.length);
+          }
+        });
+      }
+    }
+    window.addEventListener("gemini-prefill-prompt", handlePrefill);
+    return () => {
+      window.removeEventListener("gemini-prefill-prompt", handlePrefill);
+    };
+  });
 
   const gitOptions: MentionOption[] = [
     {

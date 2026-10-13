@@ -37,8 +37,12 @@
   let workspaces = $state<Workspace[]>([]);
   let activeWorkspace = $state<Workspace | null>(null);
   let sessions = $state<Session[]>([]);
-  let activeSession = $state<Session | null>(null);
+  let activeSessionId = $state<string | null>(null);
+  let activeSession = $derived<Session | null>(
+    sessions.find((s) => s.id === activeSessionId) ?? null
+  );
   let messages = $state<Message[]>([]);
+  let pendingUserMessages = $state<Record<string, Message>>({});
   let promptTemplates = $state<PromptTemplate[]>([]);
   let workspaceFiles = $state<WorkspaceFileEntry[]>([]);
   let updateInfo = $state<UpdateInfo | null>(null);
@@ -48,7 +52,7 @@
   let streamStates = $state<Record<string, SessionStreamState>>({});
 
   let activeStreamState = $derived.by<SessionStreamState>(() => {
-    const sid = activeSession?.id;
+    const sid = activeSessionId;
     if (sid && streamStates[sid]) {
       return streamStates[sid];
     }
@@ -257,19 +261,27 @@
 
     unlistenError = await listen<any>("acp-error", (event) => {
       const payloadStr = JSON.stringify(event.payload || "");
+      const targetSid =
+        event.payload?.sessionId ||
+        event.payload?.session_id ||
+        (activeSessionId && streamStates[activeSessionId]?.isStreaming
+          ? activeSessionId
+          : Object.keys(streamStates).find((id) => streamStates[id]?.isStreaming)) ||
+        activeSessionId;
+
       if (payloadStr.toLowerCase().includes("cancel")) {
         console.warn("Ignored cancellation signal:", event.payload);
-        if (activeSession?.id) {
-          finishStreamingForSession(activeSession.id);
+        if (targetSid) {
+          finishStreamingForSession(targetSid);
         }
         return;
       }
       console.error("ACP Error:", event.payload);
-      if (activeSession?.id) {
-        if (streamStates[activeSession.id]) {
-          streamStates[activeSession.id].streamingText += `\n\n**Error:** ${payloadStr}`;
+      if (targetSid) {
+        if (streamStates[targetSid]) {
+          streamStates[targetSid].streamingText += `\n\n**Error:** ${payloadStr}`;
         }
-        finishStreamingForSession(activeSession.id);
+        finishStreamingForSession(targetSid);
       }
     });
 
@@ -282,7 +294,11 @@
         line.includes("429") ||
         line.includes("high demand")
       ) {
-        const sid = activeSession?.id;
+        const sid =
+          (activeSessionId && streamStates[activeSessionId]?.isStreaming
+            ? activeSessionId
+            : Object.keys(streamStates).find((id) => streamStates[id]?.isStreaming)) ||
+          activeSessionId;
         if (sid && streamStates[sid] && streamStates[sid].isStreaming) {
           if (!streamStates[sid].streamingText.includes("high demand, retrying")) {
             streamStates[sid].streamingText += "\n\n> ⏳ *Model is currently experiencing high demand, retrying with backoff...*\n\n";
@@ -292,12 +308,30 @@
     });
 
     window.addEventListener("keydown", handleGlobalShortcuts);
+    window.addEventListener("message", handleVsMessage);
 
     // 5. Check for updates on WinGet in the background (3s delay)
     setTimeout(() => {
       handleCheckUpdate(false);
     }, 3000);
   });
+
+  function handleVsMessage(event: MessageEvent) {
+    const msg = event?.data;
+    if (!msg || msg.type !== "event") return;
+    if (msg.event === "vs-context-action" && msg.payload) {
+      const payload = msg.payload;
+      if (payload.action === "auto_prompt" && payload.prompt) {
+        handleSendMessage(payload.prompt);
+      } else if (payload.action === "selection_context" && payload.context) {
+        const ctx = payload.context;
+        const note = ctx.SelectedText
+          ? `Selected code from ${ctx.FileName} (lines ${ctx.StartLine}-${ctx.EndLine}):\n\`\`\`${ctx.Language || ""}\n${ctx.SelectedText}\n\`\`\`\n`
+          : `Active file: ${ctx.FileName}\n`;
+        window.dispatchEvent(new CustomEvent("gemini-prefill-prompt", { detail: note }));
+      }
+    }
+  }
 
   async function handleCheckUpdate(manual = false) {
     if (isCheckingUpdate) return;
@@ -332,6 +366,7 @@
     if (unlistenModeUpdate) unlistenModeUpdate();
     if (unlistenStderr) unlistenStderr();
     window.removeEventListener("keydown", handleGlobalShortcuts);
+    window.removeEventListener("message", handleVsMessage);
   });
 
   function handleGlobalShortcuts(e: KeyboardEvent) {
@@ -378,11 +413,12 @@
   }
 
   async function loadSessionsForWorkspace(wsId: string) {
-    sessions = await invoke<Session[]>("get_sessions", { workspaceId: wsId });
-    if (sessions.length > 0) {
-      await selectSession(sessions[0]);
+    const loaded = await invoke<Session[]>("get_sessions", { workspaceId: wsId });
+    sessions = loaded;
+    if (loaded.length > 0) {
+      await selectSession(loaded[0]);
     } else {
-      activeSession = null;
+      activeSessionId = null;
       messages = [];
     }
   }
@@ -401,46 +437,62 @@
   }
 
   async function selectSession(session: Session) {
-    activeSession = session;
-    messages = await invoke<Message[]>("get_session_messages", { sessionId: session.id });
+    const targetId = session.id;
+    activeSessionId = targetId;
+    const loadedMessages = await invoke<Message[]>("get_session_messages", { sessionId: targetId });
+    if (activeSessionId === targetId) {
+      const pending = pendingUserMessages[targetId];
+      if (pending && !loadedMessages.some((m) => m.role === "user" && m.content === pending.content)) {
+        messages = [...loadedMessages, pending];
+      } else {
+        messages = loadedMessages;
+      }
+    }
   }
 
-  async function handleNewSession() {
-    if (!activeWorkspace) return;
+  async function handleNewSession(): Promise<Session | null> {
+    if (!activeWorkspace) return null;
     const newSession = await invoke<Session>("create_session", {
       workspaceId: activeWorkspace.id,
       title: "New Conversation",
     });
     sessions = [newSession, ...sessions];
-    await selectSession(newSession);
+    activeSessionId = newSession.id;
+    messages = [];
+    return sessions.find((s) => s.id === newSession.id) ?? newSession;
   }
 
   async function handleRenameSession(session: Session) {
-    const newTitle = await dialogManager.prompt("Enter new title for conversation:", session.title, {
+    const currentSession = sessions.find((s) => s.id === session.id) ?? session;
+    const newTitle = await dialogManager.prompt("Enter new title for conversation:", currentSession.title, {
       title: "Rename Conversation",
       placeholder: "New conversation title...",
     });
-    if (!newTitle || !newTitle.trim() || newTitle === session.title) return;
+    if (!newTitle || !newTitle.trim() || newTitle.trim() === currentSession.title) return;
     const trimmed = newTitle.trim();
+    const now = new Date().toISOString();
+    sessions = sessions.map((s) =>
+      s.id === session.id ? { ...s, title: trimmed, updated_at: now } : s
+    );
     await invoke("rename_session", { sessionId: session.id, title: trimmed });
-    session.title = trimmed;
-    sessions = [...sessions];
   }
 
   async function handleDeleteSession(session: Session) {
-    const confirmed = await dialogManager.confirm(`Delete conversation "${session.title}"? This cannot be undone.`, {
+    const currentSession = sessions.find((s) => s.id === session.id) ?? session;
+    const confirmed = await dialogManager.confirm(`Delete conversation "${currentSession.title}"? This cannot be undone.`, {
       title: "Delete Conversation",
       confirmText: "Delete",
       isDestructive: true,
     });
     if (!confirmed) return;
     await invoke("delete_session", { sessionId: session.id });
+    delete pendingUserMessages[session.id];
     sessions = sessions.filter((s) => s.id !== session.id);
-    if (activeSession?.id === session.id) {
+    if (activeSessionId === session.id) {
       if (sessions.length > 0) {
         await selectSession(sessions[0]);
       } else {
-        activeSession = null;
+        activeSessionId = null;
         messages = [];
       }
     }
@@ -449,19 +501,31 @@
   async function handleSendPrompt(prompt: string) {
     if (!activeWorkspace) return;
 
-    if (!activeSession) {
-      await handleNewSession();
+    let targetSession = activeSession;
+    if (!targetSession) {
+      targetSession = await handleNewSession();
     }
-    if (!activeSession) return;
+    if (!targetSession) return;
 
-    const targetSessionId = activeSession.id;
+    const targetSessionId = targetSession.id;
+    const targetWorkspaceId = activeWorkspace.id;
+    const targetModel = activeWorkspace.model;
+    const now = new Date().toISOString();
 
-    // Auto-update title if it's default
-    if (activeSession.title === "New Conversation") {
-      const summary = prompt.substring(0, 32) + (prompt.length > 32 ? "..." : "");
-      await invoke("rename_session", { sessionId: targetSessionId, title: summary });
-      activeSession.title = summary;
-      sessions = [...sessions];
+    // Synchronously update session title in both Sidebar (sessions) and Header (derived activeSession)
+    // before any async IPC call so switching chats during streaming never reverts the name.
+    let summaryToPersist: string | null = null;
+    if (
+      !targetSession.title ||
+      targetSession.title === "New Conversation" ||
+      targetSession.title === "New Chat"
+    ) {
+      const cleanPrompt = prompt.trim().replace(/\s+/g, " ");
+      const summary = cleanPrompt.substring(0, 32) + (cleanPrompt.length > 32 ? "..." : "");
+      summaryToPersist = summary;
+      sessions = sessions.map((s) =>
+        s.id === targetSessionId ? { ...s, title: summary, updated_at: now } : s
+      );
     }
 
     // Add user message to UI immediately
@@ -471,9 +535,12 @@
       role: "user",
       content: prompt,
       token_count: 0,
-      created_at: new Date().toISOString(),
+      created_at: now,
     };
-    messages = [...messages, userMsg];
+    pendingUserMessages[targetSessionId] = userMsg;
+    if (activeSessionId === targetSessionId) {
+      messages = [...messages, userMsg];
+    }
 
     // Initialize session stream state
     streamStates[targetSessionId] = {
@@ -482,12 +549,20 @@
       toolPermission: null,
     };
 
+    if (summaryToPersist) {
+      try {
+        await invoke("rename_session", { sessionId: targetSessionId, title: summaryToPersist });
+      } catch (e) {
+        console.error("Failed to rename session:", e);
+      }
+    }
+
     try {
       await invoke("send_prompt", {
         sessionId: targetSessionId,
-        workspaceId: activeWorkspace.id,
+        workspaceId: targetWorkspaceId,
         prompt,
-        model: activeWorkspace.model,
+        model: targetModel,
         approvalMode,
       });
     } catch (err: any) {
@@ -495,6 +570,8 @@
         streamStates[targetSessionId].streamingText = `**Error starting prompt:** ${err?.toString() || err}`;
       }
       finishStreamingForSession(targetSessionId);
+    } finally {
+      delete pendingUserMessages[targetSessionId];
     }
   }
 
@@ -505,6 +582,7 @@
     let finalText = stream.streamingText.trim();
     stream.isStreaming = false;
     delete streamStates[sessionId];
+    delete pendingUserMessages[sessionId];
     streamStates = { ...streamStates };
 
     if (!finalText) {
@@ -522,14 +600,14 @@
     await invoke("save_message", { msg: assistantMsg });
 
     // If the user is currently viewing this session, update visible messages immediately
-    if (activeSession?.id === sessionId) {
+    if (activeSessionId === sessionId) {
       messages = [...messages, assistantMsg];
     }
   }
 
   async function handleCancelPrompt() {
-    if (!activeSession) return;
-    const sid = activeSession.id;
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
     if (streamStates[sid]) {
       streamStates[sid].toolPermission = null;
     }
@@ -542,8 +620,8 @@
   }
 
   async function handleToolResponse(requestId: number, optionId?: string, allowed: boolean = true) {
-    if (activeSession?.id && streamStates[activeSession.id]) {
-      streamStates[activeSession.id].toolPermission = null;
+    if (activeSessionId && streamStates[activeSessionId]) {
+      streamStates[activeSessionId].toolPermission = null;
     }
     try {
       await invoke("respond_tool_permission", { requestId, optionId, allowed });
@@ -610,7 +688,7 @@
       } else {
         activeWorkspace = null;
         sessions = [];
-        activeSession = null;
+        activeSessionId = null;
         messages = [];
         workspaceFiles = [];
         if (typeof window !== "undefined") {

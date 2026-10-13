@@ -3,7 +3,7 @@ type: architecture_standard
 title: Local-First SQLite Database, Migrations & FTS5 Search Index
 domain: architecture
 status: approved
-version: 1.0.0
+version: 1.1.0
 authority:
   level: official
   confidence: high
@@ -22,6 +22,7 @@ do:
   - "Use SQLite FTS5 (`messages_fts`) virtual table with `AFTER INSERT` and `AFTER DELETE` triggers on `messages` for high-performance full-text search."
   - "Protect SQLite connection access across async tasks using thread-safe synchronization (`Mutex<Connection>`)."
   - "Seed the default `Personal` workspace only once on empty database initialization, cleaning up legacy test defaults."
+  - "Atomically auto-assign the session title in `save_message` when saving the first user message to a session whose title is still `'New Conversation'`, `'New Chat'`, or empty."
 
 dont:
   - "Do not send chat history, workspace credentials, or user prompt content to any external cloud database."
