@@ -135,6 +135,13 @@ namespace Gemini.Extension.UI
                         };
                     };
 
+                    // SvelteKit desktop SPA path rewrite: if loaded at /index.html in WebView2, rewrite pathname to '/' before router evaluates routes
+                    if (window.location && window.location.pathname.endsWith('/index.html')) {
+                        try {
+                            window.history.replaceState(null, '', window.location.pathname.replace(/\/index\.html$/, '') || '/');
+                        } catch (e) {}
+                    }
+
                     window.addEventListener('message', function(e) {
                         var msg = e.data;
                         if (!msg) return;
@@ -156,6 +163,58 @@ namespace Gemini.Extension.UI
 
             await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(shimScript);
 
+            // Intercept virtual host requests directly to guarantee index.html and assets always return 200 OK
+            WebView.CoreWebView2.AddWebResourceRequestedFilter(
+                "https://gemini-desktop.local/*",
+                CoreWebView2WebResourceContext.All
+            );
+
+            WebView.CoreWebView2.WebResourceRequested += (sender, reqArgs) =>
+            {
+                try
+                {
+                    var reqUri = new Uri(reqArgs.Request.Uri);
+                    string relPath = reqUri.AbsolutePath.TrimStart('/');
+                    if (string.IsNullOrEmpty(relPath) || relPath.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string indexFile = Path.Combine(webDistPath, "index.html");
+                        if (File.Exists(indexFile))
+                        {
+                            var stream = File.OpenRead(indexFile);
+                            reqArgs.Response = environment.CreateWebResourceResponse(
+                                stream, 200, "OK", "Content-Type: text/html; charset=utf-8"
+                            );
+                            return;
+                        }
+                    }
+
+                    string filePath = Path.Combine(webDistPath, relPath.Replace('/', Path.DirectorySeparatorChar));
+                    if (File.Exists(filePath))
+                    {
+                        string ext = Path.GetExtension(filePath).ToLowerInvariant();
+                        string mime = "application/octet-stream";
+                        if (ext == ".html") mime = "text/html; charset=utf-8";
+                        else if (ext == ".js" || ext == ".mjs") mime = "application/javascript; charset=utf-8";
+                        else if (ext == ".css") mime = "text/css; charset=utf-8";
+                        else if (ext == ".json") mime = "application/json; charset=utf-8";
+                        else if (ext == ".png") mime = "image/png";
+                        else if (ext == ".svg") mime = "image/svg+xml";
+                        else if (ext == ".woff2") mime = "font/woff2";
+                        else if (ext == ".woff") mime = "font/woff";
+                        else if (ext == ".ttf") mime = "font/ttf";
+
+                        var stream = File.OpenRead(filePath);
+                        reqArgs.Response = environment.CreateWebResourceResponse(
+                            stream, 200, "OK", $"Content-Type: {mime}"
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] WebResourceRequested error: {ex.Message}");
+                }
+            };
+
             // Instantiate host bridge
             bridge = new Bridge.WebView2Bridge(WebView);
             if (GeminiPackage.Instance != null)
@@ -167,15 +226,13 @@ namespace Gemini.Extension.UI
             // Send initial theme configuration
             SendThemeUpdate();
 
-            // Navigate to SPA entrypoint
-            WebView.Source = new Uri("https://gemini-desktop.local/index.html");
-
+            // Attach NavigationCompleted handler BEFORE initiating navigation
             WebView.NavigationCompleted += (s, args) =>
             {
                 LoadingOverlay.Visibility = Visibility.Collapsed;
-                if (!args.IsSuccess)
+                if (!args.IsSuccess || (args.HttpStatusCode >= 400))
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Navigation error: {args.WebErrorStatus}");
+                    System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Navigation error: status={args.WebErrorStatus}, http={args.HttpStatusCode}");
                     try
                     {
                         WebView.CoreWebView2.NavigateToString(GetFallbackHtml());
@@ -183,6 +240,9 @@ namespace Gemini.Extension.UI
                     catch { }
                 }
             };
+
+            // Navigate to SPA entrypoint using CoreWebView2.Navigate
+            WebView.CoreWebView2.Navigate("https://gemini-desktop.local/index.html");
         }
 
         private void OnVsThemeChanged(ThemeChangedEventArgs e)
