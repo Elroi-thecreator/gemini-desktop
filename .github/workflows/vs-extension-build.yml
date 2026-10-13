@@ -40,7 +40,7 @@ jobs:
           msbuild vs-extension/Gemini.VisualStudio.sln /t:Restore /p:Configuration=Release /p:VisualStudioVersion=17.0
 
       - name: Build VSIX Package
-        run: msbuild vs-extension/Gemini.VisualStudio.sln /p:Configuration=Release /p:DeployExtension=false /p:CreateVsixContainer=true /p:VisualStudioVersion=17.0 /v:normal /fl "/flp:logfile=msbuild.log;verbosity=detailed"
+        run: msbuild vs-extension/Gemini.VisualStudio.sln /p:Configuration=Release /p:DeployExtension=false /p:CreateVsixContainer=true /p:VisualStudioVersion=17.0 /restore /v:normal /fl "/flp:logfile=msbuild.log;verbosity=detailed"
 
       - name: Upload Build Log on Failure
         if: failure()
