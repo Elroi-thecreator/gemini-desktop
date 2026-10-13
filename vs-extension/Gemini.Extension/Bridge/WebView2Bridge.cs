@@ -59,16 +59,18 @@ namespace Gemini.Extension.Bridge
 
             try
             {
-                using var doc = JsonDocument.Parse(raw);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "invoke")
+                using (var doc = JsonDocument.Parse(raw))
                 {
-                    string command = root.GetProperty("command").GetString();
-                    string callbackId = root.GetProperty("callbackId").GetString();
-                    JsonElement payload = root.TryGetProperty("payload", out var p) ? p : default;
+                    var root = doc.RootElement;
 
-                    await HandleInvokeAsync(command, payload, callbackId);
+                    if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "invoke")
+                    {
+                        string command = root.GetProperty("command").GetString();
+                        string callbackId = root.GetProperty("callbackId").GetString();
+                        JsonElement payload = root.TryGetProperty("payload", out var p) ? p : default;
+
+                        await HandleInvokeAsync(command, payload, callbackId);
+                    }
                 }
             }
             catch (Exception ex)

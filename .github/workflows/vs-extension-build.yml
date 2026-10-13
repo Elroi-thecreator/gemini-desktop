@@ -39,10 +39,12 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet packages
-        run: nuget restore vs-extension/Gemini.VisualStudio.sln
+        run: |
+          nuget restore vs-extension/Gemini.VisualStudio.sln
+          msbuild vs-extension/Gemini.VisualStudio.sln /t:Restore /p:Configuration=Release /p:VisualStudioVersion=17.0
 
       - name: Build VSIX Package
-        run: msbuild vs-extension/Gemini.VisualStudio.sln /p:Configuration=Release /p:DeployExtension=false
+        run: msbuild vs-extension/Gemini.VisualStudio.sln /p:Configuration=Release /p:DeployExtension=false /p:VisualStudioVersion=17.0 /v:normal
 
       - name: Upload VSIX Artifact
         uses: actions/upload-artifact@v4

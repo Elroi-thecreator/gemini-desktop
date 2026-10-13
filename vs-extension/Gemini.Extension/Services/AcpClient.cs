@@ -238,52 +238,54 @@ namespace Gemini.Extension.Services
         {
             try
             {
-                using var doc = JsonDocument.Parse(line);
-                var root = doc.RootElement;
-
-                // Handle JSON-RPC responses to client requests
-                if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.Number)
+                using (var doc = JsonDocument.Parse(line))
                 {
-                    long id = idProp.GetInt64();
-                    if (pendingRequests.TryRemove(id, out var tcs))
+                    var root = doc.RootElement;
+
+                    // Handle JSON-RPC responses to client requests
+                    if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.Number)
                     {
-                        if (root.TryGetProperty("result", out var resProp))
+                        long id = idProp.GetInt64();
+                        if (pendingRequests.TryRemove(id, out var tcs))
                         {
-                            tcs.TrySetResult(resProp.Clone());
-                        }
-                        else if (root.TryGetProperty("error", out var errProp))
-                        {
-                            tcs.TrySetException(new Exception(errProp.ToString()));
+                            if (root.TryGetProperty("result", out var resProp))
+                            {
+                                tcs.TrySetResult(resProp.Clone());
+                            }
+                            else if (root.TryGetProperty("error", out var errProp))
+                            {
+                                tcs.TrySetException(new Exception(errProp.ToString()));
+                            }
                         }
                     }
-                }
 
-                // Handle notifications from Agent (session/update)
-                if (root.TryGetProperty("method", out var methodProp))
-                {
-                    string method = methodProp.GetString();
-                    if (method == "session/update" && root.TryGetProperty("params", out var paramsProp))
+                    // Handle notifications from Agent (session/update)
+                    if (root.TryGetProperty("method", out var methodProp))
                     {
-                        string sessionId = paramsProp.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetString() : "";
-
-                        // Handle tool permission request from agent
-                        if (paramsProp.TryGetProperty("sessionUpdate", out var suProp) && suProp.GetString() == "tool_call")
+                        string method = methodProp.GetString();
+                        if (method == "session/update" && root.TryGetProperty("params", out var paramsProp))
                         {
-                            long reqId = root.TryGetProperty("id", out var rId) ? rId.GetInt64() : 0;
-                            string toolName = paramsProp.TryGetProperty("toolName", out var tn) ? tn.GetString() : "tool";
-                            string title = paramsProp.TryGetProperty("title", out var tt) ? tt.GetString() : "";
+                            string sessionId = paramsProp.TryGetProperty("sessionId", out var sidProp) ? sidProp.GetString() : "";
 
-                            OnToolPermissionRequested?.Invoke(reqId, sessionId, toolName, title);
-                            return;
-                        }
+                            // Handle tool permission request from agent
+                            if (paramsProp.TryGetProperty("sessionUpdate", out var suProp) && suProp.GetString() == "tool_call")
+                            {
+                                long reqId = root.TryGetProperty("id", out var rId) ? rId.GetInt64() : 0;
+                                string toolName = paramsProp.TryGetProperty("toolName", out var tn) ? tn.GetString() : "tool";
+                                string title = paramsProp.TryGetProperty("title", out var tt) ? tt.GetString() : "";
 
-                        // Handle text delta stream
-                        string delta = ExtractDeltaText(paramsProp);
-                        bool isDone = paramsProp.TryGetProperty("isDone", out var doneProp) && doneProp.GetBoolean();
+                                OnToolPermissionRequested?.Invoke(reqId, sessionId, toolName, title);
+                                return;
+                            }
 
-                        if (!string.IsNullOrEmpty(delta) || isDone)
-                        {
-                            OnChunkReceived?.Invoke(sessionId, delta, isDone);
+                            // Handle text delta stream
+                            string delta = ExtractDeltaText(paramsProp);
+                            bool isDone = paramsProp.TryGetProperty("isDone", out var doneProp) && doneProp.GetBoolean();
+
+                            if (!string.IsNullOrEmpty(delta) || isDone)
+                            {
+                                OnChunkReceived?.Invoke(sessionId, delta, isDone);
+                            }
                         }
                     }
                 }
