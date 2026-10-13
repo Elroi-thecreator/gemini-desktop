@@ -177,3 +177,27 @@ export interface WorkspacePathValidation {
   error_message?: string;
 }
 
+export interface FileSnippetResult {
+  file_path: string;
+  file_name: string;
+  target_line: number;
+  start_line: number;
+  end_line: number;
+  snippet: string;
+  total_lines: number;
+  exists: boolean;
+  language: string;
+}
+
+export interface ParsedDebugError {
+  exceptionType: string;
+  message: string;
+  filePath?: string;
+  fileName?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  rawTrace: string;
+  sourceFramework?: "dotnet" | "cpp" | "node" | "python" | "rust" | "generic";
+}
+
+

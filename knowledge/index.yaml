@@ -1,7 +1,7 @@
 # Gemini Desktop Master Knowledge Graph & Index
 system_name: GeminiDesktop
 repository_root: "c:/AIFiles/gemini-desktop"
-knowledge_units_count: 21
+knowledge_units_count: 22
 last_updated: "2026-10-13"
 
 knowledge_units:
@@ -61,6 +61,9 @@ knowledge_units:
     - id: PROD-SETUP-001
       file: "knowledge/product/PROD-SETUP-001.yaml"
       title: "In-App Gemini CLI Setup, Dual Authentication & CrowdStrike EDR Safe Execution Standard"
+    - id: PROD-DEBUG-001
+      file: "knowledge/product/PROD-DEBUG-001.yaml"
+      title: "Instant Debug Doctor, Smart Clipboard Exception Sniffer & Global Hotkey"
 
   decisions:
     - id: ADR-001

@@ -14,7 +14,10 @@
     UpdateInfo,
     ApprovalMode,
     SessionStreamState,
+    ParsedDebugError,
+    FileSnippetResult,
   } from "$lib/types";
+  import { parseDebugError } from "$lib/utils/debugParser";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
   import SolutionExplorer from "$lib/components/SolutionExplorer.svelte";
@@ -86,6 +89,12 @@
   let unlistenError: UnlistenFn | null = null;
   let unlistenModeUpdate: UnlistenFn | null = null;
   let unlistenStderr: UnlistenFn | null = null;
+  let unlistenDebugDoctor: UnlistenFn | null = null;
+
+  // Instant Debug Doctor State
+  let activeDebugError = $state<ParsedDebugError | null>(null);
+  let activeFileSnippet = $state<FileSnippetResult | null>(null);
+  let dismissedErrorSignature = $state<string | null>(null);
 
   onMount(async () => {
     // 0. Initialize theme & dynamic app version
@@ -307,6 +316,16 @@
       }
     });
 
+    // 4.5. Instant Debug Doctor (Global OS Hotkey Ctrl+Alt+D & Window Focus)
+    try {
+      unlistenDebugDoctor = await listen("instant-debug-doctor", () => {
+        checkClipboardForDebugError(true);
+      });
+    } catch (e) {
+      console.warn("Could not setup instant-debug-doctor event listener:", e);
+    }
+    window.addEventListener("focus", handleWindowFocus);
+
     window.addEventListener("keydown", handleGlobalShortcuts);
     window.addEventListener("message", handleVsMessage);
 
@@ -316,13 +335,97 @@
     }, 3000);
   });
 
+  function handleWindowFocus() {
+    checkClipboardForDebugError(false);
+  }
+
+  async function checkClipboardForDebugError(force = false) {
+    let clipText = "";
+    try {
+      clipText = await invoke<string>("get_clipboard_text");
+    } catch {
+      try {
+        if (typeof navigator !== "undefined" && navigator.clipboard) {
+          clipText = await navigator.clipboard.readText();
+        }
+      } catch {}
+    }
+
+    if (!clipText || !clipText.trim()) {
+      if (force) {
+        await dialogManager.alert(
+          "No debug exception or stack trace detected on the clipboard.\n\nIn Visual Studio, click 'Copy details' on the Exception Helper dialog (or copy a stack trace from the Output window), then click Debug Doctor or press Ctrl+Alt+D.",
+          "Debug Doctor"
+        );
+      }
+      return;
+    }
+
+    const parsed = parseDebugError(clipText);
+    if (!parsed) {
+      if (force) {
+        await dialogManager.alert(
+          "The clipboard does not contain a recognized exception or stack trace.\n\nIn Visual Studio, click 'Copy details' on the Exception Helper dialog to copy the structured exception payload.",
+          "Debug Doctor"
+        );
+      }
+      return;
+    }
+
+    const signature = `${parsed.exceptionType}:${parsed.filePath || ""}:${parsed.lineNumber || ""}`;
+    if (!force && signature === dismissedErrorSignature) {
+      return;
+    }
+
+    await loadAndDisplayDebugError(parsed);
+  }
+
+  async function loadAndDisplayDebugError(parsed: ParsedDebugError) {
+    activeDebugError = parsed;
+    activeFileSnippet = null;
+
+    if (parsed.filePath && parsed.lineNumber) {
+      try {
+        const snippet = await invoke<FileSnippetResult>("read_file_snippet", {
+          filePath: parsed.filePath,
+          targetLine: parsed.lineNumber,
+          contextLines: 15,
+          workspacePath: activeWorkspace?.path,
+        });
+        activeFileSnippet = snippet;
+      } catch (e) {
+        console.warn("Failed to load source snippet for debug exception:", e);
+      }
+    }
+  }
+
+  function handleDiagnoseDebugError(prompt: string) {
+    activeDebugError = null;
+    activeFileSnippet = null;
+    handleSendPrompt(prompt);
+  }
+
+  function handlePrefillDebugError(prompt: string) {
+    activeDebugError = null;
+    activeFileSnippet = null;
+    window.dispatchEvent(new CustomEvent("gemini-prefill-prompt", { detail: prompt }));
+  }
+
+  function handleDismissDebugError() {
+    if (activeDebugError) {
+      dismissedErrorSignature = `${activeDebugError.exceptionType}:${activeDebugError.filePath || ""}:${activeDebugError.lineNumber || ""}`;
+    }
+    activeDebugError = null;
+    activeFileSnippet = null;
+  }
+
   function handleVsMessage(event: MessageEvent) {
     const msg = event?.data;
     if (!msg || msg.type !== "event") return;
     if (msg.event === "vs-context-action" && msg.payload) {
       const payload = msg.payload;
       if (payload.action === "auto_prompt" && payload.prompt) {
-        handleSendMessage(payload.prompt);
+        handleSendPrompt(payload.prompt);
       } else if (payload.action === "selection_context" && payload.context) {
         const ctx = payload.context;
         const note = ctx.SelectedText
@@ -365,6 +468,8 @@
     if (unlistenError) unlistenError();
     if (unlistenModeUpdate) unlistenModeUpdate();
     if (unlistenStderr) unlistenStderr();
+    if (unlistenDebugDoctor) unlistenDebugDoctor();
+    window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("keydown", handleGlobalShortcuts);
     window.removeEventListener("message", handleVsMessage);
   });
@@ -388,6 +493,9 @@
     } else if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "l" || e.key === "L")) {
       e.preventDefault();
       showSolutionExplorer = !showSolutionExplorer;
+    } else if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "d" || e.key === "D")) {
+      e.preventDefault();
+      checkClipboardForDebugError(true);
     } else if ((e.ctrlKey || e.metaKey) && e.key === ";") {
       e.preventDefault();
       if (!showSolutionExplorer) showSolutionExplorer = true;
@@ -752,6 +860,13 @@
       onToggleSidebar={() => (showSidebar = !showSidebar)}
       bind:showTerminalDrawer
       bind:showSolutionExplorer
+      {activeDebugError}
+      {activeFileSnippet}
+      onDiagnoseDebugError={handleDiagnoseDebugError}
+      onPrefillDebugError={handlePrefillDebugError}
+      onDismissDebugError={handleDismissDebugError}
+      onTriggerDebugDoctor={() => checkClipboardForDebugError(true)}
+      onDebugErrorDetected={(err) => loadAndDisplayDebugError(err)}
       onSendPrompt={handleSendPrompt}
       onCancelPrompt={handleCancelPrompt}
       onToolResponse={handleToolResponse}

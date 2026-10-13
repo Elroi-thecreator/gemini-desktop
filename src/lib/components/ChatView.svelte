@@ -6,8 +6,11 @@
     ToolPermissionPayload,
     WorkspaceFileEntry,
     ApprovalMode,
+    ParsedDebugError,
+    FileSnippetResult,
   } from "$lib/types";
   import ToolPermissionCard from "$lib/components/ToolPermissionCard.svelte";
+  import DebugDoctorBanner from "$lib/components/DebugDoctorBanner.svelte";
   import ChatPromptComposer from "$lib/components/ChatPromptComposer.svelte";
   import TerminalDrawer from "$lib/components/TerminalDrawer.svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
@@ -46,6 +49,13 @@
     onToolResponse,
     onExport,
     onOpenMcpModal,
+    activeDebugError = null,
+    activeFileSnippet = null,
+    onDiagnoseDebugError,
+    onPrefillDebugError,
+    onDismissDebugError,
+    onTriggerDebugDoctor,
+    onDebugErrorDetected,
   }: {
     workspace: Workspace | null;
     session: Session | null;
@@ -64,6 +74,13 @@
     onToolResponse: (requestId: number, optionId?: string, allowed?: boolean) => void;
     onExport: (format: string) => void;
     onOpenMcpModal?: () => void;
+    activeDebugError?: ParsedDebugError | null;
+    activeFileSnippet?: FileSnippetResult | null;
+    onDiagnoseDebugError?: (prompt: string) => void;
+    onPrefillDebugError?: (prompt: string) => void;
+    onDismissDebugError?: () => void;
+    onTriggerDebugDoctor?: () => void;
+    onDebugErrorDetected?: (error: ParsedDebugError) => void;
   } = $props();
 
   let composerRef: ReturnType<typeof ChatPromptComposer> | null = $state(null);
@@ -426,6 +443,19 @@
     <ToolPermissionCard {toolPermission} onRespond={onToolResponse} />
   {/if}
 
+  <!-- Instant Debug Doctor Diagnostic Banner -->
+  {#if activeDebugError}
+    <div class="px-4 pt-2">
+      <DebugDoctorBanner
+        debugError={activeDebugError}
+        fileSnippet={activeFileSnippet}
+        onDiagnose={(prompt) => onDiagnoseDebugError?.(prompt)}
+        onPrefill={(prompt) => onPrefillDebugError?.(prompt)}
+        onDismiss={() => onDismissDebugError?.()}
+      />
+    </div>
+  {/if}
+
   <!-- Prompt Input Bar -->
   <ChatPromptComposer
     bind:this={composerRef}
@@ -433,6 +463,8 @@
     {workspaceFiles}
     {isStreaming}
     {approvalMode}
+    {onTriggerDebugDoctor}
+    {onDebugErrorDetected}
     onSendPrompt={(prompt) => {
       isUserScrolledUp = false;
       tick().then(() => scrollToBottom(true));

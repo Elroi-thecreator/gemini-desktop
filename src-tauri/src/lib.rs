@@ -31,6 +31,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        .setup(|app| {
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                commands::register_global_debug_hotkey(handle);
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             check_gemini_env,
             get_workspaces,
@@ -67,7 +74,9 @@ pub fn run() {
             save_gemini_auth_config,
             install_gemini_cli,
             detect_gcloud_status,
-            test_gemini_cli
+            test_gemini_cli,
+            read_file_snippet,
+            get_clipboard_text
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

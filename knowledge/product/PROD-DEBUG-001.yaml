@@ -1,0 +1,38 @@
+id: PROD-DEBUG-001
+type: product_feature
+title: "Instant Debug Doctor, Smart Clipboard Exception Sniffer & Global Hotkey"
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: product_team
+
+applies_to:
+  - frontend
+  - backend
+  - debug_doctor
+  - clipboard
+  - hotkeys
+
+rule: "Gemini Desktop provides an Instant Debug Doctor feature that detects runtime exceptions from Visual Studio and external tools via system clipboard analysis and global hotkey (Ctrl+Alt+D), extracts offending source code context from local disk, and generates high-context diagnostic prompts without requiring IDE plugins."
+
+do:
+  - "Support Visual Studio 'Copy details' JSON format (ClassName, Message, StackTraceString) and standard .NET/C++/Node/Python/Rust stack traces."
+  - "Read local source code files surrounding the error line (15 lines above/below) via Tauri IPC read_file_snippet to provide exact code context."
+  - "Listen for global system hotkey (Ctrl+Alt+D) using Windows RegisterHotKey in a background Win32 message loop to bring Gemini Desktop to front and trigger instant diagnosis."
+  - "Provide a dedicated 1-click button in ChatPromptComposer toolbar and auto-sniff clipboard on window focus."
+  - "Format prompts with structured markdown sections: Exception Details, Source Code Context with pointer marker, and expandable Stack Trace."
+
+dont:
+  - "Do not require developers to install or maintain complex Visual Studio VSIX plugins for exception debugging."
+  - "Do not block UI rendering or throw unhandled exceptions if target source files cannot be found on disk; provide graceful fallback."
+
+reason: "Delivers an experience matching or exceeding Microsoft Copilot's 'Analyze with Copilot' for developers debugging in Visual Studio and other environments, with zero installation overhead."
+
+related_items:
+  - ARCH-SYS-001
+  - DEV-SVELTE-001
+  - DEV-RUST-001

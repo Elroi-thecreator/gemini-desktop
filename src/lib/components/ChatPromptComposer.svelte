@@ -22,7 +22,10 @@
     Plus,
     X,
     FileCode,
+    Bug,
   } from "lucide-svelte";
+  import { parseDebugError } from "$lib/utils/debugParser";
+  import type { ParsedDebugError } from "$lib/types";
   import { tick, onMount, onDestroy } from "svelte";
 
   let {
@@ -32,6 +35,8 @@
     approvalMode = "default",
     onSendPrompt,
     onCancelPrompt,
+    onTriggerDebugDoctor,
+    onDebugErrorDetected,
   }: {
     workspace: Workspace | null;
     workspaceFiles?: WorkspaceFileEntry[];
@@ -39,6 +44,8 @@
     approvalMode?: ApprovalMode;
     onSendPrompt: (prompt: string) => void;
     onCancelPrompt: () => void;
+    onTriggerDebugDoctor?: () => void;
+    onDebugErrorDetected?: (error: ParsedDebugError) => void;
   } = $props();
 
   let inputPrompt = $state("");
@@ -338,6 +345,16 @@
     showMentionPopover = false;
     onSendPrompt(finalPrompt);
   }
+  function handlePaste(e: ClipboardEvent) {
+    if (!e.clipboardData || !onDebugErrorDetected) return;
+    const pasted = e.clipboardData.getData("text");
+    if (pasted) {
+      const err = parseDebugError(pasted);
+      if (err) {
+        onDebugErrorDetected(err);
+      }
+    }
+  }
 </script>
 
 <!-- Prompt Input Bar -->
@@ -396,6 +413,7 @@
       bind:value={inputPrompt}
       onkeydown={handleKeyDown}
       oninput={checkMentionTrigger}
+      onpaste={handlePaste}
       placeholder="Type prompt or use @file, @dir/, @git:diff... (Shift+Enter for newline, Enter to send)"
       rows="3"
       class="w-full px-3.5 py-2.5 bg-transparent text-primary-theme placeholder:text-muted-theme text-xs focus:outline-none resize-none font-sans select-text"
@@ -502,6 +520,24 @@
             </div>
           {/if}
         </div>
+
+        {#if onTriggerDebugDoctor}
+          <Tooltip
+            text="Instant Debug Doctor"
+            subtext="Scan clipboard for Visual Studio / runtime exceptions & load local source"
+            shortcut="Ctrl+Alt+D"
+            position="top"
+          >
+            <button
+              type="button"
+              onclick={onTriggerDebugDoctor}
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/30 cursor-pointer text-xs"
+            >
+              <Bug size={13} class="text-rose-400" />
+              <span class="font-medium">Debug Doctor</span>
+            </button>
+          </Tooltip>
+        {/if}
 
         <Tooltip
           text="Workspace Working Directory"
