@@ -1,4 +1,6 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <UseWPF>true</UseWPF>
@@ -7,6 +9,10 @@
     <RootNamespace>Gemini.Extension</RootNamespace>
     <AssemblyName>Gemini.Extension</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <!-- Pre-initialize intermediate and template output paths so VSSDK targets have valid paths -->
+    <IntermediateOutputPath Condition="'$(IntermediateOutputPath)' == ''">obj\$(Configuration)\$(TargetFramework)\</IntermediateOutputPath>
+    <TemplateOutputDirectory Condition="'$(TemplateOutputDirectory)' == ''">$(IntermediateOutputPath)</TemplateOutputDirectory>
 
     <!-- VSSDK Properties -->
     <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
@@ -86,5 +92,10 @@
     </ItemGroup>
   </Target>
 
+  <Target Name="EnsureTemplateOutputDirectory" BeforeTargets="GenerateTemplatesManifest">
+    <MakeDir Directories="$(TemplateOutputDirectory)" Condition="'$(TemplateOutputDirectory)' != '' and !Exists('$(TemplateOutputDirectory)')" />
+  </Target>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VSToolsPath)' != '' and Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
 </Project>
