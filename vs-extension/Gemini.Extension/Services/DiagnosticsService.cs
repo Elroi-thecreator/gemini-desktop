@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using EnvDTE;
 using EnvDTE80;
 using Microsoft.VisualStudio.Shell;
+using DTE2 = EnvDTE80.DTE2;
 
 namespace Gemini.Extension.Services
 {
