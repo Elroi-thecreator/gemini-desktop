@@ -12,10 +12,18 @@ namespace Gemini.Extension.UI
     public partial class GeminiToolWindowControl : UserControl
     {
         private Bridge.WebView2Bridge bridge;
+        private Microsoft.Web.WebView2.Wpf.WebView2 WebView;
 
         public GeminiToolWindowControl()
         {
             InitializeComponent();
+            WebView = new Microsoft.Web.WebView2.Wpf.WebView2
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            WebViewContainer.Children.Add(WebView);
+
             Loaded += OnLoaded;
             VSColorTheme.ThemeChanged += OnVsThemeChanged;
         }
