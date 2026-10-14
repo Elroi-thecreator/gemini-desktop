@@ -243,13 +243,13 @@ namespace Gemini.Extension.Bridge
                         string sQuery = payload.GetProperty("query").GetString();
                         result = pkg?.StorageService != null
                             ? await pkg.StorageService.SearchHistoryAsync(sQuery)
-                            : new System.Collections.Generic.List<Services.MessageRecord>();
+                            : new System.Collections.Generic.List<Services.SearchResultItem>();
                         break;
 
                     case "get_prompts":
                         result = pkg?.StorageService != null
                             ? await pkg.StorageService.GetPromptTemplatesAsync()
-                            : new System.Collections.Generic.List<Services.PromptTemplateRecord>();
+                            : new System.Collections.Generic.List<Services.PromptTemplateItem>();
                         break;
 
                     case "export_session":
