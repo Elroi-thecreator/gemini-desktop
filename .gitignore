@@ -18,6 +18,7 @@ vite.config.ts.timestamp-*
 winget-manifest/
 *.exe
 *.msi
+*.vsix
 *.dll
 *.pdb
 
