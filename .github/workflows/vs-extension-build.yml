@@ -79,6 +79,7 @@ jobs:
 
       - name: Publish VSIX to GitHub Release
         if: success()
+        continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
