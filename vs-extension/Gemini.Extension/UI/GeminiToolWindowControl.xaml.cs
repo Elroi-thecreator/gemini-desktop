@@ -28,7 +28,17 @@ namespace Gemini.Extension.UI
             WebViewHost.Children.Add(WebView);
 
             Loaded += OnLoaded;
+            Unloaded += OnUnloaded;
             VSColorTheme.ThemeChanged += OnVsThemeChanged;
+        }
+
+        private void OnUnloaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                VSColorTheme.ThemeChanged -= OnVsThemeChanged;
+            }
+            catch { }
         }
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -50,10 +60,22 @@ namespace Gemini.Extension.UI
 
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string userDataFolder = Path.Combine(localAppData, "GeminiVS", "WebView2Data");
-            Directory.CreateDirectory(userDataFolder);
+            try
+            {
+                Directory.CreateDirectory(userDataFolder);
+            }
+            catch { }
 
-            var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-            await WebView.EnsureCoreWebView2Async(environment);
+            try
+            {
+                var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                await WebView.EnsureCoreWebView2Async(environment);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Custom environment init failed: {ex.Message}. Falling back to default.");
+                await WebView.EnsureCoreWebView2Async();
+            }
 
             // Locate WebDist folder from extension install directory
             string extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
@@ -97,7 +119,7 @@ namespace Gemini.Extension.UI
                 catch { }
             }
 
-            // Map virtual host name to the static assets folder
+            // Map virtual host name directly to the static assets folder via Chromium native provider
             WebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "gemini-desktop.local",
                 webDistPath,
@@ -163,58 +185,6 @@ namespace Gemini.Extension.UI
 
             await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(shimScript);
 
-            // Intercept virtual host requests directly to guarantee index.html and assets always return 200 OK
-            WebView.CoreWebView2.AddWebResourceRequestedFilter(
-                "https://gemini-desktop.local/*",
-                CoreWebView2WebResourceContext.All
-            );
-
-            WebView.CoreWebView2.WebResourceRequested += (sender, reqArgs) =>
-            {
-                try
-                {
-                    var reqUri = new Uri(reqArgs.Request.Uri);
-                    string relPath = reqUri.AbsolutePath.TrimStart('/');
-                    if (string.IsNullOrEmpty(relPath) || relPath.Equals("index.html", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string indexFile = Path.Combine(webDistPath, "index.html");
-                        if (File.Exists(indexFile))
-                        {
-                            var stream = File.OpenRead(indexFile);
-                            reqArgs.Response = environment.CreateWebResourceResponse(
-                                stream, 200, "OK", "Content-Type: text/html; charset=utf-8"
-                            );
-                            return;
-                        }
-                    }
-
-                    string filePath = Path.Combine(webDistPath, relPath.Replace('/', Path.DirectorySeparatorChar));
-                    if (File.Exists(filePath))
-                    {
-                        string ext = Path.GetExtension(filePath).ToLowerInvariant();
-                        string mime = "application/octet-stream";
-                        if (ext == ".html") mime = "text/html; charset=utf-8";
-                        else if (ext == ".js" || ext == ".mjs") mime = "application/javascript; charset=utf-8";
-                        else if (ext == ".css") mime = "text/css; charset=utf-8";
-                        else if (ext == ".json") mime = "application/json; charset=utf-8";
-                        else if (ext == ".png") mime = "image/png";
-                        else if (ext == ".svg") mime = "image/svg+xml";
-                        else if (ext == ".woff2") mime = "font/woff2";
-                        else if (ext == ".woff") mime = "font/woff";
-                        else if (ext == ".ttf") mime = "font/ttf";
-
-                        var stream = File.OpenRead(filePath);
-                        reqArgs.Response = environment.CreateWebResourceResponse(
-                            stream, 200, "OK", $"Content-Type: {mime}"
-                        );
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] WebResourceRequested error: {ex.Message}");
-                }
-            };
-
             // Instantiate host bridge
             bridge = new Bridge.WebView2Bridge(WebView);
             if (GeminiPackage.Instance != null)
@@ -253,8 +223,8 @@ namespace Gemini.Extension.UI
                 }
             };
 
-            // Navigate to SPA entrypoint using CoreWebView2.Navigate
-            WebView.CoreWebView2.Navigate("https://gemini-desktop.local/index.html");
+            // Navigate to SPA entrypoint using CoreWebView2.Navigate (root path maps cleanly to index.html)
+            WebView.CoreWebView2.Navigate("https://gemini-desktop.local/");
         }
 
         private void OnVsThemeChanged(ThemeChangedEventArgs e)
@@ -266,25 +236,32 @@ namespace Gemini.Extension.UI
         {
             if (WebView?.CoreWebView2 == null) return;
 
-            // Query VS theme colors
-            var bg = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowBackgroundColorKey);
-            var fg = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowTextColorKey);
-
-            bool isDark = (bg.R * 0.299 + bg.G * 0.587 + bg.B * 0.114) < 128;
-
-            string themeJson = System.Text.Json.JsonSerializer.Serialize(new
+            try
             {
-                type = "event",
-                @event = "vs-theme-updated",
-                payload = new
-                {
-                    isDark = isDark,
-                    bg = $"#{bg.R:X2}{bg.G:X2}{bg.B:X2}",
-                    fg = $"#{fg.R:X2}{fg.G:X2}{fg.B:X2}"
-                }
-            });
+                // Query VS theme colors
+                var bg = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowBackgroundColorKey);
+                var fg = VSColorTheme.GetThemedColor(EnvironmentColors.ToolWindowTextColorKey);
 
-            WebView.CoreWebView2.PostWebMessageAsString(themeJson);
+                bool isDark = (bg.R * 0.299 + bg.G * 0.587 + bg.B * 0.114) < 128;
+
+                string themeJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "event",
+                    @event = "vs-theme-updated",
+                    payload = new
+                    {
+                        isDark = isDark,
+                        bg = $"#{bg.R:X2}{bg.G:X2}{bg.B:X2}",
+                        fg = $"#{fg.R:X2}{fg.G:X2}{fg.B:X2}"
+                    }
+                });
+
+                WebView.CoreWebView2.PostWebMessageAsString(themeJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] SendThemeUpdate error: {ex.Message}");
+            }
         }
 
         private static string GetFallbackHtml()

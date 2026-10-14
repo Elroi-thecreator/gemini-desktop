@@ -63,21 +63,20 @@ namespace Gemini.Extension
                 System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Command registration error: {ex}");
             }
 
-            // Initialize extension background services with safety guard
+            // Initialize extension background services with independent safety guards
+            try { ProcessSupervisor = new Services.ProcessSupervisor(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] ProcessSupervisor error: {ex}"); }
+            try { AcpClient = new Services.AcpClient(ProcessSupervisor); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] AcpClient error: {ex}"); }
+            try { IdeContextService = new Services.IdeContextService(this); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] IdeContextService error: {ex}"); }
+            try { NativeDiffService = new Services.NativeDiffService(this); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] NativeDiffService error: {ex}"); }
+            try { DiagnosticsService = new Services.DiagnosticsService(this); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] DiagnosticsService error: {ex}"); }
             try
             {
-                ProcessSupervisor = new Services.ProcessSupervisor();
                 StorageService = new Services.StorageService();
                 await StorageService.InitializeAsync();
-
-                IdeContextService = new Services.IdeContextService(this);
-                NativeDiffService = new Services.NativeDiffService(this);
-                DiagnosticsService = new Services.DiagnosticsService(this);
-                AcpClient = new Services.AcpClient(ProcessSupervisor);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Background services init error: {ex}");
+                System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] StorageService error: {ex}");
             }
         }
 

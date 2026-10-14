@@ -16,7 +16,7 @@ namespace Gemini.Extension.Bridge
             this.webView = webView ?? throw new ArgumentNullException(nameof(webView));
 
             var pkg = GeminiPackage.Instance;
-            if (pkg != null)
+            if (pkg?.AcpClient != null)
             {
                 pkg.AcpClient.OnChunkReceived += (sid, delta, isDone) =>
                 {
@@ -90,7 +90,7 @@ namespace Gemini.Extension.Bridge
                 switch (command)
                 {
                     case "check_gemini_env":
-                        string resolvedCli = pkg.AcpClient.FindGeminiCliPath();
+                        string resolvedCli = pkg?.AcpClient != null ? pkg.AcpClient.FindGeminiCliPath() : null;
                         bool isInstalled = !string.IsNullOrEmpty(resolvedCli) && File.Exists(resolvedCli);
                         result = new
                         {
@@ -106,13 +106,13 @@ namespace Gemini.Extension.Bridge
                         break;
 
                     case "get_pending_context_action":
-                        result = pkg.PendingContextAction;
-                        pkg.PendingContextAction = null;
+                        result = pkg?.PendingContextAction;
+                        if (pkg != null) pkg.PendingContextAction = null;
                         break;
 
                     case "get_workspaces":
-                        string solDir = await pkg.IdeContextService.GetSolutionDirectoryAsync();
-                        string solName = Path.GetFileName(solDir);
+                        string solDir = pkg?.IdeContextService != null ? await pkg.IdeContextService.GetSolutionDirectoryAsync() : "";
+                        string solName = !string.IsNullOrEmpty(solDir) ? Path.GetFileName(solDir) : "Active Solution";
                         result = new[]
                         {
                             new
@@ -129,18 +129,22 @@ namespace Gemini.Extension.Bridge
 
                     case "get_sessions":
                         string wsId = payload.TryGetProperty("workspaceId", out var wsp) ? wsp.GetString() : "vs-active-solution";
-                        result = await pkg.StorageService.GetSessionsAsync(wsId);
+                        result = pkg?.StorageService != null ? await pkg.StorageService.GetSessionsAsync(wsId) : new System.Collections.Generic.List<Services.SessionRecord>();
                         break;
 
                     case "create_session":
                         string cWsId = payload.TryGetProperty("workspaceId", out var cw) ? cw.GetString() : "vs-active-solution";
                         string title = payload.TryGetProperty("title", out var ct) ? ct.GetString() : "New Chat";
-                        result = await pkg.StorageService.CreateSessionAsync(cWsId, title);
+                        result = pkg?.StorageService != null
+                            ? await pkg.StorageService.CreateSessionAsync(cWsId, title)
+                            : new Services.SessionRecord { Id = Guid.NewGuid().ToString(), WorkspaceId = cWsId, Title = title };
                         break;
 
                     case "get_session_messages":
                         string sId = payload.GetProperty("sessionId").GetString();
-                        result = await pkg.StorageService.GetMessagesAsync(sId);
+                        result = pkg?.StorageService != null
+                            ? await pkg.StorageService.GetMessagesAsync(sId)
+                            : new System.Collections.Generic.List<Services.MessageRecord>();
                         break;
 
                     case "save_message":
@@ -154,19 +158,27 @@ namespace Gemini.Extension.Bridge
                             Model = msgProp.TryGetProperty("model", out var mp) && mp.ValueKind == JsonValueKind.String ? mp.GetString() : null,
                             CreatedAt = msgProp.TryGetProperty("created_at", out var cap) ? cap.GetInt64() : 0
                         };
-                        await pkg.StorageService.SaveMessageAsync(msgRecord);
+                        if (pkg?.StorageService != null)
+                        {
+                            await pkg.StorageService.SaveMessageAsync(msgRecord);
+                        }
                         result = true;
                         break;
 
                     case "send_prompt":
+                        if (pkg?.AcpClient == null)
+                        {
+                            errorMessage = "Gemini extension service is initializing. Please try again in a moment.";
+                            break;
+                        }
+
                         string promptSid = payload.GetProperty("sessionId").GetString();
                         string promptText = payload.GetProperty("prompt").GetString();
                         string model = payload.TryGetProperty("model", out var modProp) && modProp.ValueKind == JsonValueKind.String ? modProp.GetString() : null;
 
-                        // Start process if needed in solution directory
                         if (!pkg.AcpClient.IsRunning)
                         {
-                            string activeSolDir = await pkg.IdeContextService.GetSolutionDirectoryAsync();
+                            string activeSolDir = pkg.IdeContextService != null ? await pkg.IdeContextService.GetSolutionDirectoryAsync() : null;
                             bool started = await pkg.AcpClient.StartAsync(activeSolDir);
                             if (!started)
                             {
@@ -180,54 +192,77 @@ namespace Gemini.Extension.Bridge
                         break;
 
                     case "respond_tool_permission":
-                        long reqId = payload.GetProperty("requestId").GetInt64();
-                        string optId = payload.TryGetProperty("optionId", out var op) ? op.GetString() : "allow";
-                        bool allowed = payload.TryGetProperty("allowed", out var al) ? al.GetBoolean() : true;
-                        await pkg.AcpClient.RespondToolPermissionAsync(reqId, optId, allowed);
+                        if (pkg?.AcpClient != null)
+                        {
+                            long reqId = payload.GetProperty("requestId").GetInt64();
+                            string optId = payload.TryGetProperty("optionId", out var op) ? op.GetString() : "allow";
+                            bool allowed = payload.TryGetProperty("allowed", out var al) ? al.GetBoolean() : true;
+                            await pkg.AcpClient.RespondToolPermissionAsync(reqId, optId, allowed);
+                        }
                         result = true;
                         break;
 
                     case "rename_session":
-                        string rSid = payload.GetProperty("sessionId").GetString();
-                        string rTitle = payload.GetProperty("title").GetString();
-                        await pkg.StorageService.RenameSessionAsync(rSid, rTitle);
+                        if (pkg?.StorageService != null)
+                        {
+                            string rSid = payload.GetProperty("sessionId").GetString();
+                            string rTitle = payload.GetProperty("title").GetString();
+                            await pkg.StorageService.RenameSessionAsync(rSid, rTitle);
+                        }
                         result = true;
                         break;
 
                     case "delete_session":
-                        string dSid = payload.TryGetProperty("sessionId", out var dsp) ? dsp.GetString() : (payload.TryGetProperty("id", out var dip) ? dip.GetString() : "");
-                        await pkg.StorageService.DeleteSessionAsync(dSid);
+                        if (pkg?.StorageService != null)
+                        {
+                            string dSid = payload.TryGetProperty("sessionId", out var dsp) ? dsp.GetString() : (payload.TryGetProperty("id", out var dip) ? dip.GetString() : "");
+                            await pkg.StorageService.DeleteSessionAsync(dSid);
+                        }
                         result = true;
                         break;
 
                     case "cancel_prompt":
-                        string cSid = payload.TryGetProperty("sessionId", out var cp) ? cp.GetString() : null;
-                        await pkg.AcpClient.CancelPromptAsync(cSid);
+                        if (pkg?.AcpClient != null)
+                        {
+                            string cSid = payload.TryGetProperty("sessionId", out var cp) ? cp.GetString() : null;
+                            await pkg.AcpClient.CancelPromptAsync(cSid);
+                        }
                         result = true;
                         break;
 
                     case "restart_gemini_session":
-                        string restartDir = await pkg.IdeContextService.GetSolutionDirectoryAsync();
-                        await pkg.AcpClient.RestartAsync(restartDir);
+                        if (pkg?.AcpClient != null)
+                        {
+                            string restartDir = pkg.IdeContextService != null ? await pkg.IdeContextService.GetSolutionDirectoryAsync() : null;
+                            await pkg.AcpClient.RestartAsync(restartDir);
+                        }
                         result = true;
                         break;
 
                     case "search_history":
                         string sQuery = payload.GetProperty("query").GetString();
-                        result = await pkg.StorageService.SearchHistoryAsync(sQuery);
+                        result = pkg?.StorageService != null
+                            ? await pkg.StorageService.SearchHistoryAsync(sQuery)
+                            : new System.Collections.Generic.List<Services.MessageRecord>();
                         break;
 
                     case "get_prompts":
-                        result = await pkg.StorageService.GetPromptTemplatesAsync();
+                        result = pkg?.StorageService != null
+                            ? await pkg.StorageService.GetPromptTemplatesAsync()
+                            : new System.Collections.Generic.List<Services.PromptTemplateRecord>();
                         break;
 
                     case "export_session":
                         string expSid = payload.GetProperty("sessionId").GetString();
-                        result = await pkg.StorageService.ExportSessionMarkdownAsync(expSid);
+                        result = pkg?.StorageService != null
+                            ? await pkg.StorageService.ExportSessionMarkdownAsync(expSid)
+                            : "";
                         break;
 
                     case "list_workspace_files":
-                        result = await pkg.IdeContextService.ListSolutionFilesAsync();
+                        result = pkg?.IdeContextService != null
+                            ? await pkg.IdeContextService.ListSolutionFilesAsync()
+                            : new string[0];
                         break;
 
                     case "check_app_update":
@@ -241,23 +276,29 @@ namespace Gemini.Extension.Bridge
                         break;
 
                     case "get_active_document_context":
-                        result = await pkg.IdeContextService.GetActiveDocumentContextAsync();
+                        result = pkg?.IdeContextService != null
+                            ? await pkg.IdeContextService.GetActiveDocumentContextAsync()
+                            : null;
                         break;
 
                     case "get_build_diagnostics":
-                        result = await pkg.DiagnosticsService.GetActiveDiagnosticsAsync();
+                        result = pkg?.DiagnosticsService != null
+                            ? await pkg.DiagnosticsService.GetActiveDiagnosticsAsync()
+                            : null;
                         break;
 
                     case "show_native_diff":
-                        string origPath = payload.GetProperty("originalPath").GetString();
-                        string proposed = payload.GetProperty("proposedContent").GetString();
-                        string diffTitle = payload.TryGetProperty("title", out var dt) ? dt.GetString() : "Review Agent Changes";
-                        await pkg.NativeDiffService.OpenSideBySideDiffAsync(origPath, proposed, diffTitle);
+                        if (pkg?.NativeDiffService != null)
+                        {
+                            string origPath = payload.GetProperty("originalPath").GetString();
+                            string proposed = payload.GetProperty("proposedContent").GetString();
+                            string diffTitle = payload.TryGetProperty("title", out var dt) ? dt.GetString() : "Review Agent Changes";
+                            await pkg.NativeDiffService.OpenSideBySideDiffAsync(origPath, proposed, diffTitle);
+                        }
                         result = true;
                         break;
 
                     default:
-                        // No-op or unknown command fallback
                         result = true;
                         break;
                 }
@@ -274,36 +315,65 @@ namespace Gemini.Extension.Bridge
         {
             if (webView?.CoreWebView2 == null) return;
 
-            string json = JsonSerializer.Serialize(new
+            try
             {
-                type = "event",
-                @event = eventName,
-                payload = payload
-            });
+                string json = JsonSerializer.Serialize(new
+                {
+                    type = "event",
+                    @event = eventName,
+                    payload = payload
+                });
 
-            // Dispatch on UI thread
-            webView.Dispatcher.Invoke(() =>
-            {
-                webView.CoreWebView2.PostWebMessageAsString(json);
-            });
+                if (webView.Dispatcher.CheckAccess())
+                {
+                    webView.CoreWebView2.PostWebMessageAsString(json);
+                }
+                else
+                {
+                    webView.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            webView.CoreWebView2?.PostWebMessageAsString(json);
+                        }
+                        catch { }
+                    }));
+                }
+            }
+            catch { }
         }
 
         private void SendResponse(string callbackId, object result, string error)
         {
             if (webView?.CoreWebView2 == null) return;
 
-            string json = JsonSerializer.Serialize(new
+            try
             {
-                type = "response",
-                callbackId = callbackId,
-                result = result,
-                error = error
-            });
+                string json = JsonSerializer.Serialize(new
+                {
+                    type = "response",
+                    callbackId = callbackId,
+                    result = result,
+                    error = error
+                });
 
-            webView.Dispatcher.Invoke(() =>
-            {
-                webView.CoreWebView2.PostWebMessageAsString(json);
-            });
+                if (webView.Dispatcher.CheckAccess())
+                {
+                    webView.CoreWebView2.PostWebMessageAsString(json);
+                }
+                else
+                {
+                    webView.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            webView.CoreWebView2?.PostWebMessageAsString(json);
+                        }
+                        catch { }
+                    }));
+                }
+            }
+            catch { }
         }
     }
 }
