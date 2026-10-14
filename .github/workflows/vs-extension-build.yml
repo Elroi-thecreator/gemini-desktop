@@ -76,3 +76,15 @@ jobs:
           name: Gemini.Extension.vsix
           path: vs-extension/Gemini.Extension/bin/Release/**/*.vsix
           if-no-files-found: error
+
+      - name: Publish VSIX to GitHub Release
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $vsix = Get-ChildItem -Path vs-extension/Gemini.Extension/bin/Release -Filter "*.vsix" -Recurse | Select-Object -First 1
+          if ($vsix) {
+            Write-Host "Publishing $($vsix.FullName) to GitHub release vsix-latest..."
+            gh release create vsix-latest $vsix.FullName --title "Gemini Visual Studio Extension (Latest)" --notes "Automated CI build of Gemini.Extension.vsix for Visual Studio 2022" --prerelease --clobber
+          }
