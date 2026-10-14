@@ -119,6 +119,10 @@ namespace Gemini.Extension.UI
                 catch { }
             }
 
+            // Configure WebView2 settings
+            WebView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+            WebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+
             // Map virtual host name directly to the static assets folder via Chromium native provider
             WebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "gemini-desktop.local",
@@ -164,22 +168,30 @@ namespace Gemini.Extension.UI
                         } catch (e) {}
                     }
 
-                    window.addEventListener('message', function(e) {
+                    var handleIncomingMessage = function(e) {
                         var msg = e.data;
+                        if (typeof msg === 'string') {
+                            try { msg = JSON.parse(msg); } catch (err) {}
+                        }
                         if (!msg) return;
-                        if (msg.type === 'response' && msg.callbackId && window.__gemini_callbacks[msg.callbackId]) {
+                        if (msg.type === 'response' && msg.callbackId && window.__gemini_callbacks && window.__gemini_callbacks[msg.callbackId]) {
                             if (msg.error) {
                                 window.__gemini_callbacks[msg.callbackId].reject(new Error(msg.error));
                             } else {
                                 window.__gemini_callbacks[msg.callbackId].resolve(msg.result);
                             }
                             delete window.__gemini_callbacks[msg.callbackId];
-                        } else if (msg.type === 'event' && msg.event && window.__gemini_listeners[msg.event]) {
+                        } else if (msg.type === 'event' && msg.event && window.__gemini_listeners && window.__gemini_listeners[msg.event]) {
                             window.__gemini_listeners[msg.event].forEach(function(fn) {
-                                fn({ event: msg.event, payload: msg.payload });
+                                try { fn({ event: msg.event, payload: msg.payload }); } catch (err) {}
                             });
                         }
-                    });
+                    };
+
+                    if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.addEventListener('message', handleIncomingMessage);
+                    }
+                    window.addEventListener('message', handleIncomingMessage);
                 })();
             ";
 
@@ -223,8 +235,8 @@ namespace Gemini.Extension.UI
                 }
             };
 
-            // Navigate to SPA entrypoint using CoreWebView2.Navigate (root path maps cleanly to index.html)
-            WebView.CoreWebView2.Navigate("https://gemini-desktop.local/");
+            // Navigate to SPA entrypoint using CoreWebView2.Navigate (maps cleanly to index.html in webDistPath)
+            WebView.CoreWebView2.Navigate("https://gemini-desktop.local/index.html");
         }
 
         private void OnVsThemeChanged(ThemeChangedEventArgs e)
@@ -266,17 +278,6 @@ namespace Gemini.Extension.UI
 
         private static string GetFallbackHtml()
         {
-            try
-            {
-                string extensionDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                string htmlPath = Path.Combine(extensionDir, "Resources", "WebDist", "index.html");
-                if (File.Exists(htmlPath)) return File.ReadAllText(htmlPath);
-
-                string rootHtml = Path.Combine(extensionDir, "index.html");
-                if (File.Exists(rootHtml)) return File.ReadAllText(rootHtml);
-            }
-            catch { }
-
             return @"<!DOCTYPE html>
 <html>
 <head>
