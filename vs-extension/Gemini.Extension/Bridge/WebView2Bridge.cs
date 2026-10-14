@@ -52,31 +52,51 @@ namespace Gemini.Extension.Bridge
             }
         }
 
-        public async void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        public void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
-            string raw = e.TryGetWebMessageAsString();
-            if (string.IsNullOrWhiteSpace(raw)) return;
-
+            string raw = null;
             try
             {
-                using (var doc = JsonDocument.Parse(raw))
+                raw = e.TryGetWebMessageAsString();
+            }
+            catch { }
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                try
                 {
-                    var root = doc.RootElement;
+                    raw = e.WebMessageAsJson;
+                }
+                catch { }
+            }
 
-                    if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "invoke")
+            if (string.IsNullOrWhiteSpace(raw)) return;
+
+            // Decouple immediately from the native COM/Chromium event loop.
+            // Offload message handling to a background ThreadPool task so the native COM handler returns 0ms.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using (var doc = JsonDocument.Parse(raw))
                     {
-                        string command = root.GetProperty("command").GetString();
-                        string callbackId = root.GetProperty("callbackId").GetString();
-                        JsonElement payload = root.TryGetProperty("payload", out var p) ? p : default;
+                        var root = doc.RootElement;
 
-                        await HandleInvokeAsync(command, payload, callbackId);
+                        if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "invoke")
+                        {
+                            string command = root.GetProperty("command").GetString();
+                            string callbackId = root.GetProperty("callbackId").GetString();
+                            JsonElement payload = root.TryGetProperty("payload", out var p) ? p.Clone() : default;
+
+                            await HandleInvokeAsync(command, payload, callbackId);
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Bridge error handling message: {ex.Message}");
-            }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Gemini Desktop] Bridge message processing error: {ex.Message}");
+                }
+            });
         }
 
         private async Task HandleInvokeAsync(string command, JsonElement payload, string callbackId)

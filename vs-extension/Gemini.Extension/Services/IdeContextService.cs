@@ -19,56 +19,87 @@ namespace Gemini.Extension.Services
 
         private async Task<DTE2> GetDteAsync()
         {
-            if (dte == null)
+            try
             {
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                dte = await package.GetServiceAsync(typeof(DTE)) as DTE2;
+                if (dte == null)
+                {
+                    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    dte = await package.GetServiceAsync(typeof(DTE)) as DTE2;
+                }
+                return dte;
             }
-            return dte;
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] GetDteAsync error: {ex.Message}");
+                return null;
+            }
         }
 
         public async Task<ActiveContextInfo> GetActiveDocumentContextAsync()
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var dteInstance = await GetDteAsync();
-            if (dteInstance == null) return null;
-
-            var activeDoc = dteInstance.ActiveDocument;
-            if (activeDoc == null) return null;
-
-            var textDoc = activeDoc.Object("TextDocument") as TextDocument;
-            string selectedText = "";
-            int startLine = 0;
-            int endLine = 0;
-
-            if (textDoc != null && textDoc.Selection != null)
+            try
             {
-                selectedText = textDoc.Selection.Text;
-                startLine = textDoc.Selection.TopLine;
-                endLine = textDoc.Selection.BottomLine;
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var dteInstance = await GetDteAsync();
+                if (dteInstance == null) return null;
+
+                var activeDoc = dteInstance.ActiveDocument;
+                if (activeDoc == null) return null;
+
+                var textDoc = activeDoc.Object("TextDocument") as TextDocument;
+                string selectedText = "";
+                int startLine = 0;
+                int endLine = 0;
+
+                if (textDoc != null && textDoc.Selection != null)
+                {
+                    selectedText = textDoc.Selection.Text;
+                    startLine = textDoc.Selection.TopLine;
+                    endLine = textDoc.Selection.BottomLine;
+                }
+
+                string solDir = null;
+                try
+                {
+                    if (dteInstance.Solution != null && !string.IsNullOrEmpty(dteInstance.Solution.FullName))
+                    {
+                        solDir = Path.GetDirectoryName(dteInstance.Solution.FullName);
+                    }
+                }
+                catch { }
+
+                return new ActiveContextInfo
+                {
+                    FilePath = activeDoc.FullName,
+                    FileName = activeDoc.Name,
+                    Language = activeDoc.Language,
+                    SelectedText = selectedText,
+                    StartLine = startLine,
+                    EndLine = endLine,
+                    SolutionDirectory = solDir
+                };
             }
-
-            return new ActiveContextInfo
+            catch (Exception ex)
             {
-                FilePath = activeDoc.FullName,
-                FileName = activeDoc.Name,
-                Language = activeDoc.Language,
-                SelectedText = selectedText,
-                StartLine = startLine,
-                EndLine = endLine,
-                SolutionDirectory = dteInstance.Solution != null && !string.IsNullOrEmpty(dteInstance.Solution.FullName)
-                    ? Path.GetDirectoryName(dteInstance.Solution.FullName)
-                    : null
-            };
+                System.Diagnostics.Debug.WriteLine($"[Gemini] GetActiveDocumentContextAsync error: {ex.Message}");
+                return null;
+            }
         }
 
         public async Task<string> GetSolutionDirectoryAsync()
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var dteInstance = await GetDteAsync();
-            if (dteInstance?.Solution != null && !string.IsNullOrEmpty(dteInstance.Solution.FullName))
+            try
             {
-                return Path.GetDirectoryName(dteInstance.Solution.FullName);
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var dteInstance = await GetDteAsync();
+                if (dteInstance?.Solution != null && !string.IsNullOrEmpty(dteInstance.Solution.FullName))
+                {
+                    return Path.GetDirectoryName(dteInstance.Solution.FullName);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] GetSolutionDirectoryAsync error: {ex.Message}");
             }
             return Environment.CurrentDirectory;
         }
@@ -76,15 +107,18 @@ namespace Gemini.Extension.Services
         public async Task<System.Collections.Generic.List<WorkspaceFileEntryItem>> ListSolutionFilesAsync()
         {
             var list = new System.Collections.Generic.List<WorkspaceFileEntryItem>();
-            string solDir = await GetSolutionDirectoryAsync();
-            if (string.IsNullOrEmpty(solDir) || !Directory.Exists(solDir)) return list;
-
             try
             {
+                string solDir = await GetSolutionDirectoryAsync();
+                if (string.IsNullOrEmpty(solDir) || !Directory.Exists(solDir)) return list;
+
                 var dirInfo = new DirectoryInfo(solDir);
                 EnumerateDirectory(dirInfo, solDir, list, 0);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] ListSolutionFilesAsync error: {ex.Message}");
+            }
 
             return list;
         }

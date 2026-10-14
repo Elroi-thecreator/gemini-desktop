@@ -36,10 +36,13 @@ do:
   - "Resolve Gemini CLI path automatically with zero required user configuration: search Tools > Options override, dynamic where.exe queries (gemini, gemini.cmd, gemini.exe), system/user PATH, npm global (%APPDATA%\\npm\\gemini.cmd), WinGet links (%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\gemini.exe), 64-bit and 32-bit Program Files nodejs, LocalAppData Programs nodejs, Yarn/pnpm global bins, Scoop, Volta, and Chocolatey."
   - "Preserve editor context actions invoked while the tool window is closed by caching PendingContextAction on GeminiPackage, replaying it on CoreWebView2.NavigationCompleted, and providing get_pending_context_action invoke fallback for Svelte onMount."
   - "Maintain local SQLite persistence in %LocalAppData%\\GeminiVS with FTS5 search parity."
+  - "Handle WebView2 WebMessageReceived synchronously via void OnWebMessageReceived and offload bridge command processing to background Task.Run to prevent COM re-entrancy deadlocks and eliminate async void STA thread crashes."
+  - "Defensively guard all Visual Studio DTE, SVsDifferenceService, and ErrorList COM interactions with try/catch blocks and safe fallbacks (e.g. Environment.CurrentDirectory, empty lists, or null) so transient RPC_E_SERVERCALL_RETRYLATER or COM faults never crash devenv.exe."
 
 dont:
   - "Do not allow unmonitored child process spawning that could leave orphaned Node.js CLI processes after Visual Studio exits."
   - "Do not rewrite frontend UI components in XAML when WebView2 can natively host the existing Svelte 5 runes architecture."
+  - "Do not use async void in WebView2 COM event handlers or STA message pumps inside Visual Studio, as unhandled exceptions or thread switches bypass catch blocks and immediately terminate devenv.exe."
 
 reason: "Enables Visual Studio 2022 developers to use Gemini Desktop natively within their IDE while achieving maximum code reuse from the Svelte 5 frontend and preserving zero-zombie process guarantees."
 

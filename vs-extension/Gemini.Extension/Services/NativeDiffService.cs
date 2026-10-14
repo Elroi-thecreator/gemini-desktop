@@ -17,30 +17,38 @@ namespace Gemini.Extension.Services
 
         public async Task OpenSideBySideDiffAsync(string originalFilePath, string proposedContent, string title = "Gemini Proposed Changes")
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            var diffService = await package.GetServiceAsync(typeof(SVsDifferenceService)) as IVsDifferenceService;
-            if (diffService == null)
+            try
             {
-                throw new InvalidOperationException("IVsDifferenceService is not available in Visual Studio.");
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var diffService = await package.GetServiceAsync(typeof(SVsDifferenceService)) as IVsDifferenceService;
+                if (diffService == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Gemini] SVsDifferenceService is not available in Visual Studio.");
+                    return;
+                }
+
+                // Create a temporary file for the proposed version
+                string ext = Path.GetExtension(originalFilePath);
+                string tempProposedFile = Path.Combine(Path.GetTempPath(), $"Gemini_Proposed_{Guid.NewGuid():N}{ext}");
+                File.WriteAllText(tempProposedFile, proposedContent);
+
+                diffService.OpenComparisonWindow2(
+                    originalFilePath,
+                    tempProposedFile,
+                    title,
+                    $"{Path.GetFileName(originalFilePath)} Difference",
+                    $"{Path.GetFileName(originalFilePath)} (Current)",
+                    $"{Path.GetFileName(originalFilePath)} (Proposed)",
+                    $"{Path.GetFileName(originalFilePath)} (Inline)",
+                    null,
+                    0 // default flags
+                );
             }
-
-            // Create a temporary file for the proposed version
-            string ext = Path.GetExtension(originalFilePath);
-            string tempProposedFile = Path.Combine(Path.GetTempPath(), $"Gemini_Proposed_{Guid.NewGuid():N}{ext}");
-            File.WriteAllText(tempProposedFile, proposedContent);
-
-            diffService.OpenComparisonWindow2(
-                originalFilePath,
-                tempProposedFile,
-                title,
-                $"{Path.GetFileName(originalFilePath)} Difference",
-                $"{Path.GetFileName(originalFilePath)} (Current)",
-                $"{Path.GetFileName(originalFilePath)} (Proposed)",
-                $"{Path.GetFileName(originalFilePath)} (Inline)",
-                null,
-                0 // default flags
-            );
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] OpenSideBySideDiffAsync failed: {ex.Message}");
+            }
         }
     }
 }

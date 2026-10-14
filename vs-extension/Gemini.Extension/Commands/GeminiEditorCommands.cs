@@ -43,89 +43,117 @@ namespace Gemini.Extension.Commands
 
         private async void ExecuteAskSelection(object sender, EventArgs e)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            ShowToolWindow();
-
-            var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
-            if (pkg == null || pkg.IdeContextService == null) return;
-
-            var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
-            var payload = new
+            try
             {
-                action = "selection_context",
-                code = ctx?.SelectedText,
-                file = ctx?.FileName,
-                language = ctx?.Language,
-                context = ctx
-            };
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                ShowToolWindow();
 
-            pkg.PendingContextAction = payload;
-            pkg.Bridge?.DispatchEvent("vs-context-action", payload);
+                var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
+                if (pkg == null || pkg.IdeContextService == null) return;
+
+                var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
+                var payload = new
+                {
+                    action = "selection_context",
+                    code = ctx?.SelectedText,
+                    file = ctx?.FileName,
+                    language = ctx?.Language,
+                    context = ctx
+                };
+
+                pkg.PendingContextAction = payload;
+                pkg.Bridge?.DispatchEvent("vs-context-action", payload);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] ExecuteAskSelection failed: {ex.Message}");
+            }
         }
 
         private async void ExecuteExplainCode(object sender, EventArgs e)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            ShowToolWindow();
-
-            var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
-            if (pkg == null || pkg.IdeContextService == null) return;
-
-            var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
-            string prompt = string.IsNullOrWhiteSpace(ctx?.SelectedText)
-                ? $"Please explain the code in {ctx?.FileName ?? "the current file"}."
-                : $"Please explain the selected code in {ctx?.FileName} (lines {ctx?.StartLine}-{ctx?.EndLine}):\n\n```{ctx?.Language}\n{ctx?.SelectedText}\n```";
-
-            var payload = new
+            try
             {
-                action = "auto_prompt",
-                code = ctx?.SelectedText,
-                file = ctx?.FileName,
-                language = ctx?.Language,
-                prompt = prompt,
-                context = ctx
-            };
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                ShowToolWindow();
 
-            pkg.PendingContextAction = payload;
-            pkg.Bridge?.DispatchEvent("vs-context-action", payload);
+                var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
+                if (pkg == null || pkg.IdeContextService == null) return;
+
+                var ctx = await pkg.IdeContextService.GetActiveDocumentContextAsync();
+                string prompt = string.IsNullOrWhiteSpace(ctx?.SelectedText)
+                    ? $"Please explain the code in {ctx?.FileName ?? "the current file"}."
+                    : $"Please explain the selected code in {ctx?.FileName} (lines {ctx?.StartLine}-{ctx?.EndLine}):\n\n```{ctx?.Language}\n{ctx?.SelectedText}\n```";
+
+                var payload = new
+                {
+                    action = "auto_prompt",
+                    code = ctx?.SelectedText,
+                    file = ctx?.FileName,
+                    language = ctx?.Language,
+                    prompt = prompt,
+                    context = ctx
+                };
+
+                pkg.PendingContextAction = payload;
+                pkg.Bridge?.DispatchEvent("vs-context-action", payload);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] ExecuteExplainCode failed: {ex.Message}");
+            }
         }
 
         private async void ExecuteFixErrors(object sender, EventArgs e)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            ShowToolWindow();
-
-            var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
-            if (pkg == null || pkg.DiagnosticsService == null) return;
-
-            var diagnostics = await pkg.DiagnosticsService.GetActiveDiagnosticsAsync();
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("Please help me fix the following compilation errors in my Visual Studio solution:\n");
-
-            foreach (var diag in diagnostics)
+            try
             {
-                sb.AppendLine($"- **{diag.FileName}** (line {diag.Line}, col {diag.Column}): {diag.Description}");
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                ShowToolWindow();
+
+                var pkg = GeminiPackage.Instance ?? (package as GeminiPackage);
+                if (pkg == null || pkg.DiagnosticsService == null) return;
+
+                var diagnostics = await pkg.DiagnosticsService.GetActiveDiagnosticsAsync();
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("Please help me fix the following compilation errors in my Visual Studio solution:\n");
+
+                foreach (var diag in diagnostics)
+                {
+                    sb.AppendLine($"- **{diag.FileName}** (line {diag.Line}, col {diag.Column}): {diag.Description}");
+                }
+
+                var payload = new
+                {
+                    action = "auto_prompt",
+                    prompt = sb.ToString(),
+                    diagnostics = diagnostics
+                };
+
+                pkg.PendingContextAction = payload;
+                pkg.Bridge?.DispatchEvent("vs-context-action", payload);
             }
-
-            var payload = new
+            catch (Exception ex)
             {
-                action = "auto_prompt",
-                prompt = sb.ToString(),
-                diagnostics = diagnostics
-            };
-
-            pkg.PendingContextAction = payload;
-            pkg.Bridge?.DispatchEvent("vs-context-action", payload);
+                System.Diagnostics.Debug.WriteLine($"[Gemini] ExecuteFixErrors failed: {ex.Message}");
+            }
         }
 
         private void ShowToolWindow()
         {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            var window = package.FindToolWindow(typeof(UI.GeminiToolWindow), 0, true);
-            if (window?.Frame != null)
+            try
             {
-                var windowFrame = (IVsWindowFrame)window.Frame;
-                Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(windowFrame.Show());
+                ThreadHelper.ThrowIfNotOnUIThread();
+                var window = package.FindToolWindow(typeof(UI.GeminiToolWindow), 0, true);
+                if (window?.Frame != null)
+                {
+                    var windowFrame = (IVsWindowFrame)window.Frame;
+                    Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(windowFrame.Show());
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] ShowToolWindow failed: {ex.Message}");
             }
         }
     }

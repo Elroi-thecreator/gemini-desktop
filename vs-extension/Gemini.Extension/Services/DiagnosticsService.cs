@@ -18,36 +18,43 @@ namespace Gemini.Extension.Services
 
         public async Task<List<DiagnosticItem>> GetActiveDiagnosticsAsync()
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var dte = await package.GetServiceAsync(typeof(DTE)) as DTE2;
             var list = new List<DiagnosticItem>();
-
-            if (dte?.ToolWindows?.ErrorList?.ErrorItems == null)
+            try
             {
-                return list;
-            }
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var dte = await package.GetServiceAsync(typeof(DTE)) as DTE2;
 
-            var errorItems = dte.ToolWindows.ErrorList.ErrorItems;
-            int count = Math.Min(errorItems.Count, 20); // Capture top 20 active errors/warnings
-
-            for (int i = 1; i <= count; i++)
-            {
-                try
+                if (dte?.ToolWindows?.ErrorList?.ErrorItems == null)
                 {
-                    var item = errorItems.Item(i);
-                    list.Add(new DiagnosticItem
+                    return list;
+                }
+
+                var errorItems = dte.ToolWindows.ErrorList.ErrorItems;
+                int count = Math.Min(errorItems.Count, 20); // Capture top 20 active errors/warnings
+
+                for (int i = 1; i <= count; i++)
+                {
+                    try
                     {
-                        Description = item.Description,
-                        FileName = item.FileName,
-                        Line = item.Line,
-                        Column = item.Column,
-                        Project = item.Project
-                    });
+                        var item = errorItems.Item(i);
+                        list.Add(new DiagnosticItem
+                        {
+                            Description = item.Description,
+                            FileName = item.FileName,
+                            Line = item.Line,
+                            Column = item.Column,
+                            Project = item.Project
+                        });
+                    }
+                    catch
+                    {
+                        // Ignore transient COM error list changes
+                    }
                 }
-                catch
-                {
-                    // Ignore transient COM error list changes
-                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] GetActiveDiagnosticsAsync error: {ex.Message}");
             }
 
             return list;

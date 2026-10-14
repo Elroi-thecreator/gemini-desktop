@@ -37,16 +37,21 @@ namespace Gemini.Extension.Commands
 
         private void Execute(object sender, EventArgs e)
         {
-            ThreadHelper.ThrowIfNotOnUIThread();
-
-            var window = package.FindToolWindow(typeof(UI.GeminiToolWindow), 0, true);
-            if (window?.Frame == null)
+            try
             {
-                throw new NotSupportedException("Cannot create Gemini Desktop tool window");
-            }
+                ThreadHelper.ThrowIfNotOnUIThread();
 
-            var windowFrame = (IVsWindowFrame)window.Frame;
-            Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(windowFrame.Show());
+                var window = package.FindToolWindow(typeof(UI.GeminiToolWindow), 0, true);
+                if (window?.Frame != null)
+                {
+                    var windowFrame = (IVsWindowFrame)window.Frame;
+                    Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(windowFrame.Show());
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gemini] Failed to show tool window: {ex.Message}");
+            }
         }
     }
 }

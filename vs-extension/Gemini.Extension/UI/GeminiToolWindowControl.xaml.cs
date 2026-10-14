@@ -140,12 +140,12 @@ namespace Gemini.Extension.UI
                                 var callbackId = 'cb_' + Math.random().toString(36).substring(2, 11);
                                 window.__gemini_callbacks = window.__gemini_callbacks || {};
                                 window.__gemini_callbacks[callbackId] = { resolve: resolve, reject: reject };
-                                window.chrome.webview.postMessage({
+                                window.chrome.webview.postMessage(JSON.stringify({
                                     type: 'invoke',
                                     command: cmd,
                                     payload: args || {},
                                     callbackId: callbackId
-                                });
+                                }));
                             });
                         }
                     };
