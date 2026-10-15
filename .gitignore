@@ -63,3 +63,8 @@ ehthumbs.db
 *.sublime-workspace
 *.swp
 *.swo
+
+# Test Harness Unpacked Resources
+test-harness/Resources/
+test-harness/runtimes/
+tests/lib/

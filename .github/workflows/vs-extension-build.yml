@@ -63,6 +63,10 @@ jobs:
             Write-Host "VSIX contains root index.html: $hasRootIndex"
           }
 
+      - name: Run Automated End-to-End (E2E) Test Suite
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/e2e-test-suite.ps1
+
       - name: Upload Build Log on Failure
         if: failure()
         uses: actions/upload-artifact@v4
