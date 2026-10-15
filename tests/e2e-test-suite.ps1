@@ -90,11 +90,12 @@ try {
         if (-not ($code -match "SetVirtualHostNameToFolderMapping")) { throw "SetVirtualHostNameToFolderMapping missing" }
     }
 
-    Run-Assertion "VSIX container package (Gemini.Extension.vsix) contains all required runtime assets" {
-        $vsixPath = "Gemini.Extension.vsix"
-        if (-not (Test-Path $vsixPath)) { throw "Gemini.Extension.vsix not found in root" }
+    Run-Assertion "VSIX container package contains all required runtime assets" {
+        $vsixCandidate = Get-ChildItem -Path @(".", "vs-extension/Gemini.Extension/bin/Release") -Filter "*.vsix" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $vsixCandidate) { throw "No .vsix package found in repository or bin/Release" }
+        $vsixPath = $vsixCandidate.FullName
         Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $vsixPath))
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($vsixPath)
         try {
             $entries = $zip.Entries | Select-Object -ExpandProperty FullName
             $reqs = @("Gemini.Extension.dll", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.Wpf.dll", "Resources/WebDist/index.html")
@@ -159,10 +160,26 @@ try {
 
     Run-Assertion "Execute full SQLite schema lifecycle, FTS5 match, and cascading deletion" {
         $pyScript = "tests/sqlite-fts5-test.py"
-        if (-not (Test-Path $pyScript)) { throw "Missing tests/sqlite-fts5-test.py" }
-        $out = py $pyScript
-        if (-not ($out -contains "SQLITE_FTS5_ALL_PASSED")) {
-            throw "SQLite test failed: $out"
+        $pyCandidates = @("py", "python", "python3")
+        $passed = $false
+        $lastErr = $null
+        foreach ($cand in $pyCandidates) {
+            if (Get-Command $cand -ErrorAction SilentlyContinue) {
+                try {
+                    $out = & $cand $pyScript 2>&1
+                    if ($LASTEXITCODE -eq 0 -and ($out -match "SQLITE_FTS5_ALL_PASSED")) {
+                        $passed = $true
+                        break
+                    } else {
+                        $lastErr = ($out | Out-String).Trim()
+                    }
+                } catch {
+                    $lastErr = $_.Exception.Message
+                }
+            }
+        }
+        if (-not $passed) {
+            throw "SQLite FTS5 test failed across all python runners: $lastErr"
         }
     }
 

@@ -47,7 +47,7 @@ def run_tests():
     # 3. Test FTS5 exact phrase search
     res = con.execute("SELECT m.id, m.content, m.role FROM messages_fts f JOIN messages m ON f.rowid = m.rowid WHERE messages_fts MATCH '\"zero-duplication\"'").fetchall()
     if len(res) != 1:
-        print(f"FAIL: FTS5 query expected 1 result, got {len(res)}")
+        print("FAIL: FTS5 query expected 1 result, got {0}".format(len(res)))
         sys.exit(1)
     if 'zero-duplication' not in res[0][1]:
         print("FAIL: FTS5 match content mismatch")
@@ -64,12 +64,12 @@ def run_tests():
     con.execute("DELETE FROM sessions WHERE id = 'sess-001'")
     remaining_msgs = con.execute("SELECT COUNT(*) FROM messages WHERE session_id = 'sess-001'").fetchone()[0]
     if remaining_msgs != 0:
-        print(f"FAIL: Cascading delete failed, {remaining_msgs} messages remain")
+        print("FAIL: Cascading delete failed, {0} messages remain".format(remaining_msgs))
         sys.exit(1)
 
     remaining_fts = con.execute("SELECT COUNT(*) FROM messages_fts").fetchone()[0]
     if remaining_fts != 0:
-        print(f"FAIL: FTS5 index cleanup trigger failed, {remaining_fts} rows remain")
+        print("FAIL: FTS5 index cleanup trigger failed, {0} rows remain".format(remaining_fts))
         sys.exit(1)
 
     print("SQLITE_FTS5_ALL_PASSED")
