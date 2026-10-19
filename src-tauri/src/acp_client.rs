@@ -578,6 +578,99 @@ pub fn extract_acp_text(val: &Value) -> String {
     }
 }
 
+/// Prunes verbose raw terminal output deterministically using a head+tail strategy.
+/// When output exceeds max_bytes, preserves initial command startup and trailing results/errors,
+/// inserting a clear reduction notice to protect LLM context windows from exhaustion.
+pub fn prune_terminal_output(raw: &str, max_bytes: usize) -> (String, bool) {
+    if raw.len() <= max_bytes {
+        return (raw.to_string(), false);
+    }
+
+    let lines: Vec<&str> = raw.lines().collect();
+    if lines.len() <= 60 {
+        // Line count is small, perform safe byte-level cut
+        let mut end = max_bytes;
+        while end > 0 && !raw.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = &raw[..end];
+        return (
+            format!("{}\n\n... [Output truncated ({} bytes) for context efficiency] ...", truncated, raw.len()),
+            true,
+        );
+    }
+
+    let head_lines = 25;
+    let tail_lines = 40;
+    if lines.len() <= head_lines + tail_lines {
+        let mut end = max_bytes.min(raw.len());
+        while end > 0 && !raw.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = &raw[..end];
+        return (
+            format!("{}\n\n... [Output truncated ({} bytes)] ...", truncated, raw.len()),
+            true,
+        );
+    }
+
+    let omitted_count = lines.len() - (head_lines + tail_lines);
+    let head = lines[..head_lines].join("\n");
+    let tail = lines[lines.len() - tail_lines..].join("\n");
+
+    let pruned = format!(
+        "{}\n\n... [Deterministic Context Reduction: {} intermediate lines omitted to prevent prompt drift] ...\n\n{}",
+        head, omitted_count, tail
+    );
+
+    (pruned, true)
+}
+
+/// Generates a clean, 1-line human-readable summary for tool execution telemetry.
+pub fn generate_concise_tool_summary(
+    tool_name: &str,
+    title: &str,
+    status: &str,
+    error: Option<&str>,
+    _raw_output: Option<&str>,
+) -> String {
+    let t_name_lower = tool_name.to_lowercase();
+    let title_clean = title.trim();
+
+    if status == "failed" {
+        if let Some(err) = error {
+            let first_err_line = err.lines().next().unwrap_or("error").trim();
+            if !first_err_line.is_empty() {
+                return format!("❌ Failed: {} ({})", title_clean, first_err_line);
+            }
+        }
+        return format!("❌ Failed: {}", title_clean);
+    }
+
+    if status == "in_progress" || status == "pending" {
+        return format!("⚙️ Running: {}", title_clean);
+    }
+
+    // Status is completed
+    if t_name_lower.contains("terminal") || t_name_lower.contains("bash") || t_name_lower.contains("command") || t_name_lower.contains("exec") {
+        return format!("✅ Ran: {}", title_clean);
+    }
+
+    if t_name_lower.contains("edit") || t_name_lower.contains("write") || t_name_lower.contains("replace") || t_name_lower.contains("patch") {
+        return format!("✏️ Edited: {}", title_clean);
+    }
+
+    if t_name_lower.contains("read") || t_name_lower.contains("view") {
+        return format!("📖 Read: {}", title_clean);
+    }
+
+    if t_name_lower.contains("search") || t_name_lower.contains("grep") || t_name_lower.contains("find") || t_name_lower.contains("list") {
+        return format!("🔍 Searched: {}", title_clean);
+    }
+
+    format!("✅ Completed: {}", title_clean)
+}
+
 pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<AcpSession>, active_session_id: &str) {
     let trimmed = line.trim();
     if trimmed.is_empty() {
@@ -682,12 +775,14 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                             let params = val.pointer("/params/update/parameters")
                                 .or_else(|| val.pointer("/params/update/input"))
                                 .cloned();
+                            let summary = generate_concise_tool_summary(tool_name, title, status, None, None);
 
                             let _ = app_handle.emit("acp-tool-call", serde_json::json!({
                                 "session_id": matched_session_id,
                                 "tool_call_id": tool_call_id,
                                 "title": title,
                                 "tool_name": tool_name,
+                                "summary": summary,
                                 "status": status,
                                 "error": None::<String>,
                                 "parameters": params,
@@ -717,15 +812,26 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                                 .map(extract_acp_text)
                                 .filter(|s| !s.is_empty());
 
+                            // Deterministic context reduction: prune output stored in tool telemetry to 4KB max
+                            let pruned_out = raw_out.as_ref().map(|s| prune_terminal_output(s, 4096).0);
+                            let summary = generate_concise_tool_summary(
+                                tool_name,
+                                title,
+                                status,
+                                err_msg.as_deref(),
+                                pruned_out.as_deref(),
+                            );
+
                             let _ = app_handle.emit("acp-tool-call", serde_json::json!({
                                 "session_id": matched_session_id,
                                 "tool_call_id": tool_call_id,
                                 "title": title,
                                 "tool_name": tool_name,
+                                "summary": summary,
                                 "status": status,
                                 "error": err_msg,
                                 "parameters": None::<Value>,
-                                "raw_output": raw_out,
+                                "raw_output": pruned_out,
                             }));
                         }
                         Some("current_mode_update") => {
@@ -1083,9 +1189,10 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                                 "terminal/output" => {
                                     let term_id = val_clone.pointer("/params/terminalId").and_then(|t| t.as_str()).unwrap_or("");
                                     let (output, exit_code) = acp_clone.get_terminal_result(term_id).unwrap_or((String::new(), 0));
+                                    let (pruned_output, is_truncated) = prune_terminal_output(&output, 16384);
                                     let _ = acp_clone.send_response(req_id, serde_json::json!({
-                                        "output": output,
-                                        "truncated": false,
+                                        "output": pruned_output,
+                                        "truncated": is_truncated,
                                         "exitStatus": {
                                             "code": exit_code
                                         }
@@ -1584,6 +1691,46 @@ mod tests {
         assert_eq!(tool_call_id, "call_42");
         assert_eq!(title, "run_command (cargo test)");
         assert_eq!(status, "in_progress");
+    }
+
+    #[test]
+    fn test_prune_terminal_output_below_threshold() {
+        let text = "Running test...\nOK (5 tests passed)";
+        let (pruned, is_truncated) = prune_terminal_output(text, 100);
+        assert!(!is_truncated);
+        assert_eq!(pruned, text);
+    }
+
+    #[test]
+    fn test_prune_terminal_output_exceeding_threshold() {
+        let mut lines = Vec::new();
+        for i in 1..=200 {
+            lines.push(format!("Line {}: processing item", i));
+        }
+        let full_output = lines.join("\n");
+        let (pruned, is_truncated) = prune_terminal_output(&full_output, 500);
+
+        assert!(is_truncated);
+        assert!(pruned.contains("Line 1: processing item")); // Preserves head
+        assert!(pruned.contains("Line 200: processing item")); // Preserves tail
+        assert!(pruned.contains("Deterministic Context Reduction")); // Injects omission marker
+        assert!(pruned.len() < full_output.len());
+    }
+
+    #[test]
+    fn test_generate_concise_tool_summary() {
+        let summary_cmd = generate_concise_tool_summary("terminal", "npm run test", "completed", None, None);
+        assert_eq!(summary_cmd, "✅ Ran: npm run test");
+
+        let summary_fail = generate_concise_tool_summary("terminal", "cargo build", "failed", Some("Error: type mismatch on line 42"), None);
+        assert!(summary_fail.contains("❌ Failed: cargo build"));
+        assert!(summary_fail.contains("Error: type mismatch on line 42"));
+
+        let summary_edit = generate_concise_tool_summary("write_file", "src/lib/types.ts", "completed", None, None);
+        assert_eq!(summary_edit, "✏️ Edited: src/lib/types.ts");
+
+        let summary_running = generate_concise_tool_summary("search", "src/", "in_progress", None, None);
+        assert_eq!(summary_running, "⚙️ Running: src/");
     }
 }
 

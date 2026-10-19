@@ -97,7 +97,7 @@
       <div class="flex items-center gap-1.5 truncate min-w-0">
         <ToolIcon size={13} class="text-secondary-theme shrink-0" />
         <span class="font-mono font-medium text-primary-theme truncate">
-          {step.title || step.tool_name || "Task Step"}
+          {step.summary || step.title || step.tool_name || "Task Step"}
         </span>
       </div>
     </div>

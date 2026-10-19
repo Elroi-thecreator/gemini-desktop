@@ -67,6 +67,7 @@ export interface ToolExecutionStep {
   title: string;
   tool_name: string;
   status: "in_progress" | "pending" | "completed" | "failed";
+  summary?: string;
   error?: string;
   parameters?: any;
   raw_output?: string;
@@ -80,6 +81,7 @@ export interface ToolCallPayload {
   title: string;
   tool_name: string;
   status: string;
+  summary?: string;
   error?: string;
   parameters?: any;
   raw_output?: string;

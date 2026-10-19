@@ -39,6 +39,7 @@ export function parseToolSteps(msg: Message): ToolExecutionStep[] {
           id: `legacy-${steps.length}`,
           title,
           tool_name: title,
+          summary: `✅ Ran: ${title}`,
           status: "completed", // Legacy messages in DB are already finished
         };
         steps.push(currentStep);
@@ -48,11 +49,13 @@ export function parseToolSteps(msg: Message): ToolExecutionStep[] {
           id: `legacy-${steps.length}`,
           title,
           tool_name: title,
+          summary: `✅ Completed: ${title}`,
           status: "completed",
         });
       } else if (failMatch) {
         if (currentStep) {
           currentStep.status = "failed";
+          currentStep.summary = `❌ Failed: ${currentStep.title}`;
           if (failMatch[2]) currentStep.error = failMatch[2].trim();
         } else {
           const title = failMatch[1].trim();
@@ -60,6 +63,7 @@ export function parseToolSteps(msg: Message): ToolExecutionStep[] {
             id: `legacy-${steps.length}`,
             title,
             tool_name: title,
+            summary: `❌ Failed: ${title}`,
             status: "failed",
             error: failMatch[2]?.trim(),
           });
