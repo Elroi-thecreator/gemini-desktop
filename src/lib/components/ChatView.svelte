@@ -8,7 +8,10 @@
     ApprovalMode,
     ParsedDebugError,
     FileSnippetResult,
+    ToolExecutionStep,
   } from "$lib/types";
+  import ToolCallNode from "$lib/components/ToolCallNode.svelte";
+  import { parseToolSteps, cleanMessageContent } from "$lib/utils/toolSteps";
   import ToolPermissionCard from "$lib/components/ToolPermissionCard.svelte";
   import DebugDoctorBanner from "$lib/components/DebugDoctorBanner.svelte";
   import ChatPromptComposer from "$lib/components/ChatPromptComposer.svelte";
@@ -38,6 +41,7 @@
     messages = [],
     isStreaming = false,
     streamingText = "",
+    streamingToolCalls = [],
     toolPermission = null,
     showSidebar = true,
     onToggleSidebar,
@@ -63,6 +67,7 @@
     messages: Message[];
     isStreaming: boolean;
     streamingText: string;
+    streamingToolCalls?: ToolExecutionStep[];
     toolPermission: ToolPermissionPayload | null;
     showSidebar?: boolean;
     onToggleSidebar?: () => void;
@@ -343,9 +348,23 @@
               </Tooltip>
             </div>
           {:else}
-            <div class="markdown-body">
-              {@html renderMarkdown(msg.content)}
-            </div>
+            {@const toolSteps = parseToolSteps(msg)}
+            {@const cleanContent = cleanMessageContent(msg.content, toolSteps.length > 0)}
+
+            {#if toolSteps.length > 0}
+              <div class="mb-3 space-y-1">
+                {#each toolSteps as step (step.id)}
+                  <ToolCallNode {step} />
+                {/each}
+              </div>
+            {/if}
+
+            {#if cleanContent}
+              <div class="markdown-body">
+                {@html renderMarkdown(cleanContent)}
+              </div>
+            {/if}
+
             <div class="mt-2.5 pt-2 border-t border-subtle/50 flex items-center justify-between text-[11px] text-muted-theme select-none">
               <div class="flex items-center gap-2">
                 {#if msg.created_at}
@@ -406,11 +425,19 @@
           <Sparkles size={14} />
         </div>
         <div class="max-w-3xl bg-bubble-assistant border border-bubble-assistant rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-primary-theme shadow-xs w-full">
+          {#if streamingToolCalls && streamingToolCalls.length > 0}
+            <div class="mb-3 space-y-1">
+              {#each streamingToolCalls as step (step.id)}
+                <ToolCallNode {step} />
+              {/each}
+            </div>
+          {/if}
+
           {#if streamingText}
             <div class="markdown-body">
               {@html renderMarkdown(streamingText)}
             </div>
-          {:else}
+          {:else if !streamingToolCalls || streamingToolCalls.length === 0}
             <div class="flex items-center gap-2 text-muted-theme italic">
               <span class="inline-block w-2 h-2 rounded-full bg-accent-theme animate-ping"></span>
               Thinking...

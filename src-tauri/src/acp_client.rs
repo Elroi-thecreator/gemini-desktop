@@ -666,34 +666,67 @@ pub fn handle_acp_line(line: &str, app_handle: &AppHandle, acp_session: &Arc<Acp
                     // Check if this update represents tool execution progress
                     match update_type {
                         Some("tool_call") => {
+                            let tool_call_id = val.pointer("/params/update/toolCallId")
+                                .or_else(|| val.pointer("/params/update/id"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("tool");
                             let title = val.pointer("/params/update/title")
                                 .or_else(|| val.pointer("/params/update/toolCallId"))
                                 .and_then(|t| t.as_str())
                                 .unwrap_or("tool");
+                            let tool_name = val.pointer("/params/update/name")
+                                .or_else(|| val.pointer("/params/update/tool"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or(title);
                             let status = val.pointer("/params/update/status").and_then(|s| s.as_str()).unwrap_or("in_progress");
-                            if status == "in_progress" || status == "pending" {
-                                delta = format!("\n\n> ⚙️ **Running tool:** `{}`...\n", title);
-                            }
+                            let params = val.pointer("/params/update/parameters")
+                                .or_else(|| val.pointer("/params/update/input"))
+                                .cloned();
+
+                            let _ = app_handle.emit("acp-tool-call", serde_json::json!({
+                                "session_id": matched_session_id,
+                                "tool_call_id": tool_call_id,
+                                "title": title,
+                                "tool_name": tool_name,
+                                "status": status,
+                                "error": None::<String>,
+                                "parameters": params,
+                                "raw_output": None::<String>,
+                            }));
                         }
                         Some("tool_call_update") => {
+                            let tool_call_id = val.pointer("/params/update/toolCallId")
+                                .or_else(|| val.pointer("/params/update/id"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("tool");
                             let title = val.pointer("/params/update/title")
                                 .or_else(|| val.pointer("/params/update/toolCallId"))
                                 .and_then(|t| t.as_str())
                                 .unwrap_or("tool");
+                            let tool_name = val.pointer("/params/update/name")
+                                .or_else(|| val.pointer("/params/update/tool"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or(title);
                             let status = val.pointer("/params/update/status").and_then(|s| s.as_str()).unwrap_or("completed");
-                            if status == "completed" {
-                                delta = format!("> ✅ **Completed:** `{}`\n\n", title);
-                            } else if status == "failed" {
-                                let err_msg = val.pointer("/params/update/content/0/content/text")
-                                    .or_else(|| val.pointer("/params/update/content/text"))
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or("");
-                                if !err_msg.is_empty() {
-                                    delta = format!("> ❌ **Tool failed:** `{}`: {}\n\n", title, err_msg);
-                                } else {
-                                    delta = format!("> ❌ **Tool failed:** `{}`\n\n", title);
-                                }
-                            }
+                            let err_msg = val.pointer("/params/update/content/0/content/text")
+                                .or_else(|| val.pointer("/params/update/content/text"))
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string());
+                            let raw_out = val.pointer("/params/update/content")
+                                .or_else(|| val.pointer("/params/update/output"))
+                                .map(extract_acp_text)
+                                .filter(|s| !s.is_empty());
+
+                            let _ = app_handle.emit("acp-tool-call", serde_json::json!({
+                                "session_id": matched_session_id,
+                                "tool_call_id": tool_call_id,
+                                "title": title,
+                                "tool_name": tool_name,
+                                "status": status,
+                                "error": err_msg,
+                                "parameters": None::<Value>,
+                                "raw_output": raw_out,
+                            }));
                         }
                         Some("current_mode_update") => {
                             if let Some(mode_id) = val.pointer("/params/update/currentModeId").and_then(|m| m.as_str()) {
@@ -1532,6 +1565,25 @@ mod tests {
             payload.pointer("/outcome/optionId").and_then(|o| o.as_str()),
             Some("proceed_always")
         );
+    }
+
+    #[test]
+    fn test_tool_call_status_payload_formatting() {
+        let val = serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_42",
+            "title": "run_command (cargo test)",
+            "status": "in_progress",
+            "parameters": { "command": "cargo test" }
+        });
+
+        let tool_call_id = val.pointer("/toolCallId").and_then(|t| t.as_str()).unwrap_or("tool");
+        let title = val.pointer("/title").and_then(|t| t.as_str()).unwrap_or("tool");
+        let status = val.pointer("/status").and_then(|s| s.as_str()).unwrap_or("in_progress");
+
+        assert_eq!(tool_call_id, "call_42");
+        assert_eq!(title, "run_command (cargo test)");
+        assert_eq!(status, "in_progress");
     }
 }
 

@@ -3,7 +3,7 @@ type: architecture_standard
 title: Agent Client Protocol (ACP) JSON-RPC Streaming & Tool Intercepts
 domain: architecture
 status: approved
-version: 1.10.0
+version: 1.11.0
 authority:
   level: official
   confidence: high
@@ -29,7 +29,7 @@ do:
   - "Monitor stdout reader thread EOF on process termination: guard state cleanup and `is_done: true` emission with active child PID matching to prevent dying process threads from terminating newer sessions during workspace switches."
   - "Extract text robustly via `extract_acp_text` across strings, single content blocks, and arrays of ContentBlocks (`[{\"type\": \"text\", \"text\": \"...\"}]`) in both `session/update` notifications and `session/prompt` completion results, preventing dropped assistant summaries following tool execution."
   - "Ensure `tool_call` and `tool_call_update` session updates NEVER mark `is_done: true`, preserving active stream state so subsequent model synthesis and summaries are rendered to the UI without premature turn termination."
-  - "Parse `sessionUpdate: \"tool_call\"` and `\"tool_call_update\"` in `session/update` notifications to stream real-time tool execution progress (`⚙️ Running tool...`, `✅ Completed`, `❌ Tool failed`) to the chat surface, preventing silent UI stalls during autonomous tool execution."
+  - "Parse `sessionUpdate: \"tool_call\"` and `\"tool_call_update\"` in `session/update` notifications and emit structured `acp-tool-call` events with metadata (`session_id`, `tool_call_id`, `title`, `tool_name`, `status`, `error`, `parameters`, `raw_output`) instead of polluting streaming text delta with raw markdown blockquotes, reserving delta exclusively for conversational response tokens."
   - "Inspect `stopReason` (`max_turn_requests`, `max_tokens`, `cancelled`) on prompt completion responses and synthesize fallback notices when the model returns without text deltas, preventing dropped assistant responses."
   - "Listen to `acp-stderr` in the frontend to surface live diagnostics when the underlying model experiences API demand spikes (503/429) and exponential backoff retries."
   - "Intercept tool permission requests: in YOLO mode and Auto-Edit mode (for safe inspection and edits), auto-approve immediately in the Rust backend over stdin (0ms latency, immune to Windows WebView2 background throttling); in Ask mode or for unsafe commands, emit `acp-tool-permission` to the frontend for interactive user confirmation."

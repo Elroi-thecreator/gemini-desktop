@@ -16,6 +16,7 @@
     SessionStreamState,
     ParsedDebugError,
     FileSnippetResult,
+    ToolCallPayload,
   } from "$lib/types";
   import { parseDebugError } from "$lib/utils/debugParser";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -65,6 +66,7 @@
   let isStreaming = $derived(activeStreamState.isStreaming);
   let streamingText = $derived(activeStreamState.streamingText);
   let toolPermission = $derived(activeStreamState.toolPermission);
+  let streamingToolCalls = $derived(activeStreamState.toolCalls || []);
 
   let generatingSessionIds = $derived(
     new Set(
@@ -86,6 +88,7 @@
 
   let unlistenChunk: UnlistenFn | null = null;
   let unlistenTool: UnlistenFn | null = null;
+  let unlistenToolCall: UnlistenFn | null = null;
   let unlistenError: UnlistenFn | null = null;
   let unlistenModeUpdate: UnlistenFn | null = null;
   let unlistenStderr: UnlistenFn | null = null;
@@ -265,6 +268,62 @@
           }
           streamStates[sessionId].toolPermission = payload;
         }
+      }
+    );
+
+    unlistenToolCall = await listen<ToolCallPayload>(
+      "acp-tool-call",
+      (event) => {
+        const payload = event.payload;
+        const sessionId = payload.session_id;
+        if (!sessionId) return;
+
+        if (!streamStates[sessionId]) {
+          streamStates[sessionId] = {
+            streamingText: "",
+            isStreaming: true,
+            toolPermission: null,
+            toolCalls: [],
+          };
+        }
+
+        if (!streamStates[sessionId].toolCalls) {
+          streamStates[sessionId].toolCalls = [];
+        }
+
+        const list = streamStates[sessionId].toolCalls!;
+        const existingIdx = list.findIndex(
+          (t) => t.id === payload.tool_call_id || (payload.tool_call_id !== "tool" && t.id === payload.tool_call_id)
+        );
+
+        const now = Date.now();
+        if (existingIdx >= 0) {
+          const prev = list[existingIdx];
+          const duration = prev.created_at ? now - new Date(prev.created_at).getTime() : undefined;
+          list[existingIdx] = {
+            ...prev,
+            status: payload.status as any,
+            title: payload.title || prev.title,
+            tool_name: payload.tool_name || prev.tool_name,
+            error: payload.error || prev.error,
+            raw_output: payload.raw_output || prev.raw_output,
+            parameters: payload.parameters || prev.parameters,
+            duration_ms: duration ?? prev.duration_ms,
+          };
+        } else {
+          list.push({
+            id: payload.tool_call_id || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            title: payload.title || payload.tool_name || "Task Step",
+            tool_name: payload.tool_name || payload.title || "tool",
+            status: payload.status as any,
+            error: payload.error,
+            raw_output: payload.raw_output,
+            parameters: payload.parameters,
+            created_at: new Date(now).toISOString(),
+          });
+        }
+        streamStates[sessionId].toolCalls = [...list];
+        streamStates = { ...streamStates };
       }
     );
 
@@ -465,6 +524,7 @@
   onDestroy(() => {
     if (unlistenChunk) unlistenChunk();
     if (unlistenTool) unlistenTool();
+    if (unlistenToolCall) unlistenToolCall();
     if (unlistenError) unlistenError();
     if (unlistenModeUpdate) unlistenModeUpdate();
     if (unlistenStderr) unlistenStderr();
@@ -688,12 +748,13 @@
     if (!stream) return;
 
     let finalText = stream.streamingText.trim();
+    const toolCalls = stream.toolCalls && stream.toolCalls.length > 0 ? stream.toolCalls : undefined;
     stream.isStreaming = false;
     delete streamStates[sessionId];
     delete pendingUserMessages[sessionId];
     streamStates = { ...streamStates };
 
-    if (!finalText) {
+    if (!finalText && (!toolCalls || toolCalls.length === 0)) {
       finalText = "*(Completed with no additional text response)*";
     }
 
@@ -702,6 +763,7 @@
       session_id: sessionId,
       role: "assistant",
       content: finalText,
+      tool_calls_json: toolCalls ? JSON.stringify(toolCalls) : undefined,
       token_count: Math.ceil(finalText.length / 4),
       created_at: new Date().toISOString(),
     };
@@ -854,6 +916,7 @@
       {messages}
       {isStreaming}
       {streamingText}
+      {streamingToolCalls}
       {toolPermission}
       {showSidebar}
       {approvalMode}

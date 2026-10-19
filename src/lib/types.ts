@@ -62,10 +62,34 @@ export interface ToolPermissionPayload {
   options: PermissionOption[];
 }
 
+export interface ToolExecutionStep {
+  id: string;
+  title: string;
+  tool_name: string;
+  status: "in_progress" | "pending" | "completed" | "failed";
+  error?: string;
+  parameters?: any;
+  raw_output?: string;
+  created_at?: string;
+  duration_ms?: number;
+}
+
+export interface ToolCallPayload {
+  session_id: string;
+  tool_call_id: string;
+  title: string;
+  tool_name: string;
+  status: string;
+  error?: string;
+  parameters?: any;
+  raw_output?: string;
+}
+
 export interface SessionStreamState {
   streamingText: string;
   isStreaming: boolean;
   toolPermission: ToolPermissionPayload | null;
+  toolCalls?: ToolExecutionStep[];
 }
 
 export interface GeminiEnvStatus {
