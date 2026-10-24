@@ -385,6 +385,24 @@ impl AcpSession {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub async fn send_steering(&self, session_id: &str, hint: &str) -> Result<(), String> {
+        let actual_sid = self.get_acp_session_id(session_id).unwrap_or_else(|| session_id.to_string());
+        let params = serde_json::json!({
+            "sessionId": actual_sid,
+            "hint": hint,
+            "text": hint,
+        });
+
+        // 1. Send official ACP session/steer notification
+        self.send_notification("session/steer", params.clone()).await?;
+
+        // 2. Also send session/prompt_hint notification for broader ACP protocol compatibility
+        let _ = self.send_notification("session/prompt_hint", params).await;
+
+        Ok(())
+    }
+
     pub fn store_permission_options(&self, request_id: u64, options: Vec<PermissionOption>) {
         if let Ok(mut guard) = self.pending_permissions.lock() {
             guard.insert(request_id, options);
@@ -1385,6 +1403,15 @@ mod tests {
         assert_eq!(opts.len(), 2);
         assert_eq!(opts[0].option_id, "proceed_once");
         assert_eq!(opts[1].option_id, "cancel");
+    }
+
+    #[tokio::test]
+    async fn test_send_steering_when_disconnected() {
+        let session = AcpSession::new();
+        // Since stdin_writer is None, send_steering should return Err("CLI stdin is not connected")
+        let res = session.send_steering("local-sess", "Skip unit tests").await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("stdin is not connected"));
     }
 
     #[test]

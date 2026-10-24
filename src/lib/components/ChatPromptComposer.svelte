@@ -12,6 +12,7 @@
   import { dialogManager } from "$lib/dialog.svelte";
   import { getModeConfig } from "$lib/utils/approvalModes";
   import {
+    Compass,
     Send,
     Square,
     Paperclip,
@@ -35,6 +36,7 @@
     approvalMode = "default",
     onSendPrompt,
     onCancelPrompt,
+    onSteerPrompt,
     onTriggerDebugDoctor,
     onDebugErrorDetected,
   }: {
@@ -44,6 +46,7 @@
     approvalMode?: ApprovalMode;
     onSendPrompt: (prompt: string) => void;
     onCancelPrompt: () => void;
+    onSteerPrompt?: (hint: string) => void;
     onTriggerDebugDoctor?: () => void;
     onDebugErrorDetected?: (error: ParsedDebugError) => void;
   } = $props();
@@ -290,6 +293,15 @@
     }
   }
 
+  function handleSteer() {
+    const trimmed = inputPrompt.trim();
+    if (!trimmed) return;
+    if (onSteerPrompt) {
+      onSteerPrompt(trimmed);
+      inputPrompt = "";
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (showMentionPopover && filteredMentionOptions.length > 0) {
       if (e.key === "ArrowDown") {
@@ -314,7 +326,11 @@
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      if (isStreaming) {
+        handleSteer();
+      } else {
+        handleSubmit();
+      }
     } else if (e.key === "Escape" && isStreaming) {
       e.preventDefault();
       onCancelPrompt();
@@ -414,7 +430,9 @@
       onkeydown={handleKeyDown}
       oninput={checkMentionTrigger}
       onpaste={handlePaste}
-      placeholder="Type prompt or use @file, @dir/, @git:diff... (Shift+Enter for newline, Enter to send)"
+      placeholder={isStreaming
+        ? "🎯 Steer active agent in real time (e.g. skip tests, focus on src/api)... Press Enter or click Steer"
+        : "Type prompt or use @file, @dir/, @git:diff... (Shift+Enter for newline, Enter to send)"}
       rows="3"
       class="w-full px-3.5 py-2.5 bg-transparent text-primary-theme placeholder:text-muted-theme text-xs focus:outline-none resize-none font-sans select-text"
     ></textarea>

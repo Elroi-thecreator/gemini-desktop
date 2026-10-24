@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use crate::acp_client::{handle_acp_line, StreamChunkPayload};
 use crate::commands::AppState;
 use crate::database::Message;
@@ -111,12 +112,17 @@ pub async fn send_prompt(
     prompt: String,
     model: String,
     approval_mode: Option<String>,
+    message_id: Option<String>,
 ) -> Result<u64, String> {
     let now = Utc::now().to_rfc3339();
 
+    let final_msg_id = message_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| format!("msg-{}", Uuid::new_v4()));
+
     // 1. Save user prompt to local database
     let user_msg = Message {
-        id: format!("msg-{}", Uuid::new_v4()),
+        id: final_msg_id,
         session_id: session_id.clone(),
         role: "user".to_string(),
         content: prompt.clone(),
@@ -408,6 +414,295 @@ pub async fn send_prompt(
     Ok(req_id)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RewindResult {
+    pub rewound_messages_count: usize,
+    pub restored_files: Vec<String>,
+    pub previous_prompt: Option<String>,
+}
+
+pub const USER_STEERING_INSTRUCTION: &str = "Internal instruction: Re-evaluate the active plan using this user steering update. Classify it as ADD_TASK, MODIFY_TASK, CANCEL_TASK, or EXTRA_CONTEXT. Apply minimal-diff changes only to affected tasks and keep unaffected tasks active. Do not cancel/skip tasks unless the user explicitly cancels them. Acknowledge the steering briefly and state the course correction.";
+
+pub fn build_user_steering_prompt(hint: &str) -> String {
+    format!(
+        "User steering update:\n{}\n\n{}",
+        hint.trim(),
+        USER_STEERING_INSTRUCTION
+    )
+}
+
+#[tauri::command]
+pub async fn steer_prompt(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    hint: String,
+) -> Result<(), String> {
+    let trimmed = hint.trim();
+    if trimmed.is_empty() {
+        return Err("Steering hint cannot be empty".to_string());
+    }
+
+    // 1. Cancel in-flight generation in Gemini CLI so it aborts current turn
+    let _ = state.acp_session.send_cancel(Some(&session_id), None).await;
+
+    // Small delay to allow cancellation to propagate through ACP
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+    // 2. Format official Gemini CLI steering prompt instruction
+    let steering_prompt = build_user_steering_prompt(trimmed);
+
+    // 3. Obtain current ACP session ID
+    let acp_sid = match state.acp_session.get_acp_session_id(&session_id) {
+        Some(id) => id,
+        None => {
+            let _ = app.emit("acp-chunk", StreamChunkPayload {
+                session_id: session_id.clone(),
+                delta: format!("\n\n> 🎯 **[Offline Mock Steer]** Received steering hint: *{}*\n", trimmed),
+                is_done: true,
+            });
+            return Ok(());
+        }
+    };
+
+    state.acp_session.set_active_local_session(&session_id);
+
+    let prompt_params = serde_json::json!({
+        "sessionId": acp_sid,
+        "prompt": [
+            {
+                "type": "text",
+                "text": steering_prompt
+            }
+        ]
+    });
+
+    // 4. Send steering prompt to the model in the same active ACP session
+    let _ = state.acp_session.send_prompt_request(&session_id, prompt_params).await?;
+
+    let _ = app.emit("acp-steer", serde_json::json!({
+        "session_id": session_id,
+        "hint": trimmed,
+        "timestamp": Utc::now().to_rfc3339(),
+    }));
+
+    Ok(())
+}
+
+fn add_cleaned_rel_path(files: &mut Vec<String>, raw: &str, ws_path: &std::path::Path) {
+    let trimmed = raw.trim().trim_matches(|c| c == '"' || c == '\'' || c == '`');
+    if trimmed.is_empty() || trimmed.contains("..") {
+        return;
+    }
+    let p = std::path::Path::new(trimmed);
+    let norm = if p.is_absolute() {
+        if let Ok(rel) = p.strip_prefix(ws_path) {
+            rel.to_string_lossy().replace('\\', "/")
+        } else {
+            return;
+        }
+    } else {
+        trimmed.replace('\\', "/")
+    };
+
+    let norm_clean = norm.trim_start_matches("./").to_string();
+    if !norm_clean.is_empty() && !norm_clean.starts_with(".git") && !norm_clean.starts_with("node_modules") {
+        if !files.contains(&norm_clean) {
+            files.push(norm_clean);
+        }
+    }
+}
+
+fn extract_potential_filenames(files: &mut Vec<String>, text: &str, ws_path: &std::path::Path) {
+    for word in text.split_whitespace() {
+        let clean = word.trim().trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-' && c != '/' && c != '\\');
+        if clean.contains('.') && !clean.ends_with('.') && !clean.starts_with('.') && !clean.contains("http") && !clean.contains("www.") {
+            let candidate_path = ws_path.join(clean);
+            if candidate_path.exists() {
+                add_cleaned_rel_path(files, clean, ws_path);
+            }
+        }
+    }
+}
+
+pub fn extract_files_from_messages(messages: &[Message], ws_path: &std::path::Path) -> Vec<String> {
+    let mut files = Vec::new();
+
+    for m in messages {
+        if let Some(ref json_str) = m.tool_calls_json {
+            if let Ok(serde_json::Value::Array(tool_list)) = serde_json::from_str::<serde_json::Value>(json_str) {
+                for tool in tool_list {
+                    if let Some(params) = tool.get("parameters") {
+                        if let Some(obj) = params.as_object() {
+                            for key in &["filePath", "file_path", "path", "target_path", "targetPath", "file", "filename", "destination"] {
+                                if let Some(val) = obj.get(*key).and_then(|v| v.as_str()) {
+                                    add_cleaned_rel_path(&mut files, val, ws_path);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(title) = tool.get("title").and_then(|t| t.as_str()) {
+                        extract_potential_filenames(&mut files, title, ws_path);
+                    }
+                    if let Some(summary) = tool.get("summary").and_then(|s| s.as_str()) {
+                        extract_potential_filenames(&mut files, summary, ws_path);
+                    }
+                }
+            }
+        }
+
+        extract_potential_filenames(&mut files, &m.content, ws_path);
+    }
+
+    files.sort();
+    files.dedup();
+    files
+}
+
+#[tauri::command]
+pub async fn rewind_turn(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    workspace_id: String,
+    target_message_id: String,
+    revert_code: bool,
+    revert_messages: Option<bool>,
+) -> Result<RewindResult, String> {
+    // 1. Cancel active turn for this session if running
+    let _ = state.acp_session.send_cancel(Some(&session_id), None).await;
+
+    // 2. Clear ACP session mapping
+    state.acp_session.remove_session(&session_id);
+
+    // 3. Delete or inspect messages from database
+    let should_revert_messages = revert_messages.unwrap_or(true);
+    let (count, prev_prompt, target_messages) = if should_revert_messages {
+        state.db.delete_messages_from(&session_id, &target_message_id)?
+    } else {
+        state.db.get_messages_from(&session_id, &target_message_id)?
+    };
+
+    // 4. Optionally selectively revert code modifications
+    let mut restored_files = Vec::new();
+    if revert_code {
+        let ws_opt = state.db.list_workspaces()?.into_iter().find(|w| w.id == workspace_id);
+        if let Some(ws) = ws_opt {
+            let ws_path = std::path::PathBuf::from(&ws.path);
+            if ws_path.exists() {
+                // Determine candidate files touched during the rewound turn(s)
+                let mut target_files = extract_files_from_messages(&target_messages, &ws_path);
+
+                // Find earliest timestamp of rewound turn
+                let earliest_ts = target_messages.iter()
+                    .filter_map(|m| chrono::DateTime::parse_from_rfc3339(&m.created_at).ok())
+                    .min()
+                    .map(|dt| dt.with_timezone(&Utc));
+
+                // Also inspect git status to selectively capture files modified during this turn
+                let mut status_cmd = Command::new("git");
+                status_cmd.args(&["status", "--porcelain"]).current_dir(&ws_path);
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    status_cmd.creation_flags(0x08000000);
+                }
+
+                if let Ok(out) = status_cmd.output() {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    for line in text.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.len() > 3 {
+                            let file_part = trimmed[3..].trim();
+                            let full_path = ws_path.join(file_part);
+                            let was_modified_in_turn = if let Some(turn_time) = earliest_ts {
+                                if let Ok(meta) = full_path.metadata() {
+                                    if let Ok(mod_time) = meta.modified() {
+                                        let mod_dt: chrono::DateTime<Utc> = mod_time.into();
+                                        mod_dt >= turn_time - chrono::Duration::seconds(15)
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
+                            if was_modified_in_turn {
+                                add_cleaned_rel_path(&mut target_files, file_part, &ws_path);
+                            }
+                        }
+                    }
+                }
+
+                // Selectively revert or remove ONLY the files identified for this turn.
+                // Never run blind git clean -fd across the workspace to avoid wiping earlier untracked files.
+                for file_rel in target_files {
+                    let full_path = ws_path.join(&file_rel);
+
+                    let mut check_tracked_cmd = Command::new("git");
+                    check_tracked_cmd.args(&["ls-files", "--error-unmatch", &file_rel]).current_dir(&ws_path);
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        check_tracked_cmd.creation_flags(0x08000000);
+                    }
+                    let is_tracked = check_tracked_cmd.status().map(|s| s.success()).unwrap_or(false);
+
+                    if is_tracked {
+                        let mut unstage_cmd = Command::new("git");
+                        unstage_cmd.args(&["restore", "--staged", &file_rel]).current_dir(&ws_path);
+                        #[cfg(target_os = "windows")]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            unstage_cmd.creation_flags(0x08000000);
+                        }
+                        let _ = unstage_cmd.status();
+
+                        let mut restore_cmd = Command::new("git");
+                        restore_cmd.args(&["restore", &file_rel]).current_dir(&ws_path);
+                        #[cfg(target_os = "windows")]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            restore_cmd.creation_flags(0x08000000);
+                        }
+                        if let Ok(status) = restore_cmd.status() {
+                            if status.success() {
+                                restored_files.push(file_rel);
+                            }
+                        }
+                    } else if full_path.exists() {
+                        if full_path.is_file() {
+                            if std::fs::remove_file(&full_path).is_ok() {
+                                restored_files.push(file_rel);
+                            }
+                        } else if full_path.is_dir() {
+                            if std::fs::remove_dir_all(&full_path).is_ok() {
+                                restored_files.push(file_rel);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Emit acp-rewind event
+    let _ = app.emit("acp-rewind", serde_json::json!({
+        "session_id": session_id,
+        "rewound_count": count,
+        "restored_files": restored_files,
+    }));
+
+    Ok(RewindResult {
+        rewound_messages_count: count,
+        restored_files,
+        previous_prompt: prev_prompt,
+    })
+}
+
 #[tauri::command]
 pub async fn cancel_prompt(
     state: State<'_, AppState>,
@@ -442,6 +737,19 @@ pub async fn restart_gemini_session(state: State<'_, AppState>) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rewind_result_serialization() {
+        let res = RewindResult {
+            rewound_messages_count: 2,
+            restored_files: vec!["src/main.rs".to_string()],
+            previous_prompt: Some("Fix bug".to_string()),
+        };
+        let serialized = serde_json::to_string(&res).unwrap();
+        assert!(serialized.contains("\"rewound_messages_count\":2"));
+        assert!(serialized.contains("src/main.rs"));
+        assert!(serialized.contains("Fix bug"));
+    }
 
     #[test]
     fn test_resolve_git_context() {
@@ -517,5 +825,49 @@ mod tests {
         };
         assert!(is_active_for_current, "Current PID must match active PID");
     }
-}
 
+    #[test]
+    fn test_extract_files_from_messages_isolation() {
+        let temp_dir = std::env::temp_dir().join(format!("test_isolation_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let file2 = temp_dir.join("test2.abc");
+        let file3 = temp_dir.join("test3.abc");
+        std::fs::write(&file2, "content 2").unwrap();
+        std::fs::write(&file3, "content 3").unwrap();
+
+        let turn2_user = Message {
+            id: "msg-user-2".to_string(),
+            session_id: "sess-1".to_string(),
+            role: "user".to_string(),
+            content: "Hi,\nCreate a dummy file test3.abc".to_string(),
+            tool_calls_json: None,
+            token_count: 10,
+            created_at: "2026-10-25T10:02:00Z".to_string(),
+        };
+
+        let turn2_assistant = Message {
+            id: "msg-assistant-2".to_string(),
+            session_id: "sess-1".to_string(),
+            role: "assistant".to_string(),
+            content: "I have created test3.abc for you.".to_string(),
+            tool_calls_json: Some(serde_json::json!([
+                {
+                    "tool_name": "write_file",
+                    "parameters": { "filePath": "test3.abc" },
+                    "summary": "Edited: test3.abc"
+                }
+            ]).to_string()),
+            token_count: 20,
+            created_at: "2026-10-25T10:02:05Z".to_string(),
+        };
+
+        let turn2_messages = vec![turn2_user, turn2_assistant];
+        let extracted = extract_files_from_messages(&turn2_messages, &temp_dir);
+
+        assert!(extracted.contains(&"test3.abc".to_string()));
+        assert!(!extracted.contains(&"test2.abc".to_string()));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}

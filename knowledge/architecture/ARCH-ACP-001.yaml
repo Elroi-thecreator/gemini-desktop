@@ -44,6 +44,8 @@ do:
   - "Remove exhausted ACP session mappings on `max_turn_requests` or `max_tokens` via `acp_session.remove_session(&session_id)`, enabling prompt retries or 'continue' messages to seamlessly initialize a fresh ACP session context."
   - "Validate `stopReason` as a non-null, non-empty string before setting `is_done: true`, preventing spurious turn terminations caused by null JSON pointers."
   - "Isolate background streams per session ID (`streamStates[session_id]`) in the frontend and resolve ACP session mappings in the backend so users can switch between chats while the CLI is processing in the background without cross-talk or UI blocking."
+  - "Support real-time Model Steering mid-flight via `send_steering` and `steer_prompt`, transmitting JSON-RPC `session/steer` notifications and emitting `acp-steer` events so users can course-correct autonomous runs without terminating turns."
+  - "Provide stateful conversation and file rewind via `rewind_turn` and `delete_messages_from`, pruning rolled-back turns from SQLite FTS5 index and optionally restoring working tree files via Git checkout/restore."
   - "Provide a fallback mock/offline mode if the Gemini CLI executable is absent on PATH."
 
 dont:

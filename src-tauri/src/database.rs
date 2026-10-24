@@ -303,6 +303,74 @@ impl DbManager {
         Ok(())
     }
 
+    pub fn get_messages_from(
+        &self,
+        session_id: &str,
+        target_message_id: &str,
+    ) -> Result<(usize, Option<String>, Vec<Message>), String> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, tool_calls_json, token_count, created_at FROM messages WHERE session_id = ?1 ORDER BY created_at ASC"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok(Message {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                tool_calls_json: row.get(4)?,
+                token_count: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        let mut all_messages = Vec::new();
+        for r in rows {
+            all_messages.push(r.map_err(|e| e.to_string())?);
+        }
+
+        if all_messages.is_empty() {
+            return Ok((0, None, Vec::new()));
+        }
+
+        let target_idx = all_messages
+            .iter()
+            .position(|m| m.id == target_message_id)
+            .unwrap_or_else(|| all_messages.len().saturating_sub(1));
+
+        let messages_from_target = all_messages[target_idx..].to_vec();
+        let target_msg = &all_messages[target_idx];
+        let prev_prompt = if target_msg.role == "user" {
+            Some(target_msg.content.clone())
+        } else {
+            None
+        };
+
+        Ok((messages_from_target.len(), prev_prompt, messages_from_target))
+    }
+
+    pub fn delete_messages_from(
+        &self,
+        session_id: &str,
+        target_message_id: &str,
+    ) -> Result<(usize, Option<String>, Vec<Message>), String> {
+        let (count, prev_prompt, messages_to_delete) = self.get_messages_from(session_id, target_message_id)?;
+
+        if !messages_to_delete.is_empty() {
+            let conn = self.conn.lock().unwrap();
+            for m in &messages_to_delete {
+                conn.execute(
+                    "DELETE FROM messages WHERE session_id = ?1 AND id = ?2",
+                    params![session_id, m.id],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok((count, prev_prompt, messages_to_delete))
+    }
+
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id]).map_err(|e| e.to_string())?;
@@ -467,6 +535,94 @@ fn dirs_fallback() -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_delete_messages_from_rewind() {
+        let db = DbManager::new().unwrap();
+        let ws_id = format!("ws-{}", Uuid::new_v4());
+
+        db.save_workspace(Workspace {
+            id: ws_id.clone(),
+            name: "Test WS".to_string(),
+            path: "C:\\tmp".to_string(),
+            model: "gemini-2.5-pro".to_string(),
+            system_prompt: None,
+            approval_mode: Some("default".to_string()),
+            created_at: Utc::now().to_rfc3339(),
+        }).unwrap();
+
+        let sess = db.create_session(&ws_id, "Rewind Session").unwrap();
+        let sess_id = sess.id;
+
+        let id1 = format!("msg-{}", Uuid::new_v4());
+        let id2 = format!("msg-{}", Uuid::new_v4());
+        let id3 = format!("msg-{}", Uuid::new_v4());
+        let id4 = format!("msg-{}", Uuid::new_v4());
+
+        let msg1 = Message {
+            id: id1.clone(),
+            session_id: sess_id.clone(),
+            role: "user".to_string(),
+            content: "First user prompt".to_string(),
+            tool_calls_json: None,
+            token_count: 10,
+            created_at: "2026-10-24T10:00:00Z".to_string(),
+        };
+        let msg2 = Message {
+            id: id2.clone(),
+            session_id: sess_id.clone(),
+            role: "assistant".to_string(),
+            content: "First assistant response".to_string(),
+            tool_calls_json: None,
+            token_count: 20,
+            created_at: "2026-10-24T10:01:00Z".to_string(),
+        };
+        let msg3 = Message {
+            id: id3.clone(),
+            session_id: sess_id.clone(),
+            role: "user".to_string(),
+            content: "Second user prompt to rewind".to_string(),
+            tool_calls_json: None,
+            token_count: 15,
+            created_at: "2026-10-24T10:02:00Z".to_string(),
+        };
+        let msg4 = Message {
+            id: id4.clone(),
+            session_id: sess_id.clone(),
+            role: "assistant".to_string(),
+            content: "Second assistant response".to_string(),
+            tool_calls_json: None,
+            token_count: 30,
+            created_at: "2026-10-24T10:03:00Z".to_string(),
+        };
+
+        db.save_message(msg1).unwrap();
+        db.save_message(msg2).unwrap();
+        db.save_message(msg3).unwrap();
+        db.save_message(msg4).unwrap();
+
+        assert_eq!(db.list_messages(&sess_id).unwrap().len(), 4);
+
+        // Rewind from msg3
+        let (deleted, prompt, deleted_msgs) = db.delete_messages_from(&sess_id, &id3).unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(deleted_msgs.len(), 2);
+        assert_eq!(deleted_msgs[0].id, id3);
+        assert_eq!(deleted_msgs[1].id, id4);
+        assert_eq!(prompt, Some("Second user prompt to rewind".to_string()));
+
+        let remaining = db.list_messages(&sess_id).unwrap();
+        assert_eq!(remaining.len(), 2);
+        assert_eq!(remaining[0].id, id1);
+        assert_eq!(remaining[1].id, id2);
+
+        // Test fallback rewind when non-existent ID is passed (e.g. temp- id)
+        let (fallback_deleted, fallback_prompt, fallback_msgs) = db.delete_messages_from(&sess_id, "temp-unknown-id").unwrap();
+        assert_eq!(fallback_deleted, 1);
+        assert_eq!(fallback_msgs.len(), 1);
+        assert_eq!(fallback_prompt, None); // id2 was assistant, so None
+        assert_eq!(db.list_messages(&sess_id).unwrap().len(), 1);
+    }
 
     #[test]
     fn test_db_init_and_seed() {

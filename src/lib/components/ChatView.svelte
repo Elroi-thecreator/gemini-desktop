@@ -9,12 +9,16 @@
     ParsedDebugError,
     FileSnippetResult,
     ToolExecutionStep,
+    PlanTaskItem,
   } from "$lib/types";
   import ToolCallNode from "$lib/components/ToolCallNode.svelte";
   import { parseToolSteps, cleanMessageContent } from "$lib/utils/toolSteps";
   import ToolPermissionCard from "$lib/components/ToolPermissionCard.svelte";
   import DebugDoctorBanner from "$lib/components/DebugDoctorBanner.svelte";
   import ChatPromptComposer from "$lib/components/ChatPromptComposer.svelte";
+  import PlanWorkbench from "$lib/components/PlanWorkbench.svelte";
+  import { extractTasksFromMarkdown, syncTasksCompletionFromMarkdown } from "$lib/utils/planParser";
+  import { modalManager } from "$lib/modal.svelte";
   import TerminalDrawer from "$lib/components/TerminalDrawer.svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
   import { renderMarkdown } from "$lib/markdown";
@@ -26,11 +30,14 @@
     Copy,
     Check,
     RotateCcw,
+    History,
+    Compass,
     Edit3,
     ArrowDown,
     PanelLeftClose,
     PanelLeftOpen,
     FileText,
+    ListTodo,
   } from "lucide-svelte";
   import { tick } from "svelte";
 
@@ -42,6 +49,7 @@
     isStreaming = false,
     streamingText = "",
     streamingToolCalls = [],
+    streamingSteeringHints = [],
     toolPermission = null,
     showSidebar = true,
     onToggleSidebar,
@@ -50,9 +58,12 @@
     approvalMode = "default",
     onSendPrompt,
     onCancelPrompt,
+    onSteerPrompt,
+    onExecutePlan,
     onToolResponse,
     onExport,
     onOpenMcpModal,
+    onOpenRewindModal,
     activeDebugError = null,
     activeFileSnippet = null,
     onDiagnoseDebugError,
@@ -68,6 +79,7 @@
     isStreaming: boolean;
     streamingText: string;
     streamingToolCalls?: ToolExecutionStep[];
+    streamingSteeringHints?: string[];
     toolPermission: ToolPermissionPayload | null;
     showSidebar?: boolean;
     onToggleSidebar?: () => void;
@@ -76,9 +88,12 @@
     approvalMode?: ApprovalMode;
     onSendPrompt: (prompt: string) => void;
     onCancelPrompt: () => void;
+    onSteerPrompt?: (hint: string) => void;
+    onExecutePlan?: (mode: "auto_edit" | "default", tasks: PlanTaskItem[]) => void;
     onToolResponse: (requestId: number, optionId?: string, allowed?: boolean) => void;
     onExport: (format: string) => void;
     onOpenMcpModal?: () => void;
+    onOpenRewindModal?: (targetId?: string) => void;
     activeDebugError?: ParsedDebugError | null;
     activeFileSnippet?: FileSnippetResult | null;
     onDiagnoseDebugError?: (prompt: string) => void;
@@ -93,6 +108,161 @@
   let showExportMenu = $state(false);
   let isUserScrolledUp = $state(false);
   let copiedMessageId = $state<string | null>(null);
+
+  let isPlanWorkbenchOpen = $state(false);
+  let wasExecutingPlan = $state(false);
+  let sessionPlanTasks = $state<Record<string, PlanTaskItem[]>>({});
+  let lastParsedPlanContent = $state<Record<string, string>>({});
+  let hasAutoOpenedForStreamingPlan = $state(false);
+
+  let currentSessionId = $derived(session?.id || "");
+  let currentTasks = $derived(
+    currentSessionId && sessionPlanTasks[currentSessionId]
+      ? sessionPlanTasks[currentSessionId]
+      : []
+  );
+
+  let lastPlanContent = $derived.by(() => {
+    if (isStreaming && streamingText && (streamingText.includes("- [ ]") || streamingText.includes("- [x]") || streamingText.includes("Step 1:"))) {
+      return streamingText;
+    }
+    // Only inspect the most recent assistant message in this conversation
+    for (let i = messages.length - 1; i >= Math.max(0, messages.length - 2); i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && (m.content.includes("- [ ]") || m.content.includes("- [x]") || m.content.includes("Step 1:"))) {
+        return m.content;
+      }
+    }
+    return "";
+  });
+
+  // When session changes: keep workbench closed by default (never auto-pop on load/switch)
+  let prevSessionId = $state("");
+  $effect(() => {
+    const sid = currentSessionId;
+    if (sid !== prevSessionId) {
+      prevSessionId = sid;
+      isPlanWorkbenchOpen = false;
+      hasAutoOpenedForStreamingPlan = false;
+
+      // Load tasks for this specific session from localStorage if not already in memory
+      if (sid && !sessionPlanTasks[sid] && typeof window !== "undefined") {
+        try {
+          const saved = localStorage.getItem(`gemini_plan_tasks_${sid}`);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              sessionPlanTasks[sid] = parsed;
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to load plan tasks for session", sid, e);
+        }
+      }
+    }
+  });
+
+  // If this session has no tasks yet, but messages contain a plan, parse it for this session
+  $effect(() => {
+    const sid = currentSessionId;
+    if (sid && lastPlanContent && lastPlanContent !== lastParsedPlanContent[sid]) {
+      lastParsedPlanContent[sid] = lastPlanContent;
+      if (!sessionPlanTasks[sid] || sessionPlanTasks[sid].length === 0) {
+        const extracted = extractTasksFromMarkdown(lastPlanContent);
+        if (extracted.length > 0) {
+          sessionPlanTasks[sid] = extracted;
+          try {
+            localStorage.setItem(`gemini_plan_tasks_${sid}`, JSON.stringify(extracted));
+          } catch {}
+        }
+      }
+    }
+  });
+
+  // Auto-open workbench ONLY when real-time streaming actively generates a new plan
+  $effect(() => {
+    if (!isStreaming) {
+      hasAutoOpenedForStreamingPlan = false;
+      return;
+    }
+    const sid = currentSessionId;
+    if (!sid) return;
+
+    if (streamingText && (streamingText.includes("- [ ]") || streamingText.includes("Step 1:"))) {
+      if (!hasAutoOpenedForStreamingPlan) {
+        hasAutoOpenedForStreamingPlan = true;
+        isPlanWorkbenchOpen = true;
+      }
+      const liveExtracted = extractTasksFromMarkdown(streamingText);
+      if (liveExtracted.length > 0) {
+        sessionPlanTasks[sid] = liveExtracted;
+        try {
+          localStorage.setItem(`gemini_plan_tasks_${sid}`, JSON.stringify(liveExtracted));
+        } catch {}
+      }
+    }
+  });
+
+  function handleUpdateTasks(updated: PlanTaskItem[]) {
+    const sid = currentSessionId;
+    if (!sid) return;
+    sessionPlanTasks[sid] = updated;
+    try {
+      localStorage.setItem(`gemini_plan_tasks_${sid}`, JSON.stringify(updated));
+    } catch {}
+  }
+
+  // Live sync of completed checkboxes from streaming text or assistant messages
+  $effect(() => {
+    const sid = currentSessionId;
+    if (!sid || !sessionPlanTasks[sid] || sessionPlanTasks[sid].length === 0) return;
+
+    const sourceText = isStreaming ? streamingText : lastPlanContent;
+    if (sourceText && (sourceText.includes("- [x]") || sourceText.includes("- [X]") || sourceText.includes("* [x]"))) {
+      const synced = syncTasksCompletionFromMarkdown(sessionPlanTasks[sid], sourceText);
+      if (synced !== sessionPlanTasks[sid]) {
+        sessionPlanTasks[sid] = synced;
+        try {
+          localStorage.setItem(`gemini_plan_tasks_${sid}`, JSON.stringify(synced));
+        } catch {}
+      }
+    }
+  });
+
+  // Turn finish: auto-mark remaining tasks as completed when plan execution concludes
+  $effect(() => {
+    if (!isStreaming && wasExecutingPlan) {
+      wasExecutingPlan = false;
+      const sid = currentSessionId;
+      if (sid && sessionPlanTasks[sid] && sessionPlanTasks[sid].length > 0) {
+        const completedTasks = sessionPlanTasks[sid].map((t) => ({ ...t, completed: true }));
+        sessionPlanTasks[sid] = completedTasks;
+        try {
+          localStorage.setItem(`gemini_plan_tasks_${sid}`, JSON.stringify(completedTasks));
+        } catch {}
+      }
+    }
+  });
+
+  let lastEscTime = 0;
+  function handleEscEsc(e: KeyboardEvent) {
+    if (e.key === "Escape" && !isStreaming) {
+      const now = Date.now();
+      if (now - lastEscTime < 450) {
+        modalManager.open("rewind");
+        lastEscTime = 0;
+      } else {
+        lastEscTime = now;
+      }
+    }
+  }
+
+  $effect(() => {
+    window.addEventListener("keydown", handleEscEsc);
+    return () => {
+      window.removeEventListener("keydown", handleEscEsc);
+    };
+  });
 
   let effectiveApprovalMode = $derived(
     workspace?.approval_mode || approvalMode || "default"
@@ -232,6 +402,24 @@
         </div>
       </Tooltip>
 
+      {#if effectiveApprovalMode === "plan" || currentTasks.length > 0 || lastPlanContent}
+        <Tooltip text={isPlanWorkbenchOpen ? "Hide Plan Workbench" : "Open Plan Workbench"} position="bottom">
+          <button
+            type="button"
+            onclick={() => (isPlanWorkbenchOpen = !isPlanWorkbenchOpen)}
+            class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border font-medium shadow-xs transition-colors cursor-pointer {isPlanWorkbenchOpen ? 'bg-sky-500/15 border-sky-500/40 text-sky-300' : 'bg-surface hover:bg-surface-hover text-secondary-theme border-subtle'}"
+          >
+            <ListTodo size={13} class={currentTasks.length > 0 && currentTasks.every(t => t.completed) ? 'text-emerald-400' : 'text-sky-400'} />
+            <span>Plan</span>
+            {#if currentTasks.length > 0}
+              <span class="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] {currentTasks.every(t => t.completed) ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300'} font-semibold">
+                {currentTasks.filter(t => t.completed).length}/{currentTasks.length}
+              </span>
+            {/if}
+          </button>
+        </Tooltip>
+      {/if}
+
       <!-- Export Menu -->
       <div class="relative">
         <Tooltip
@@ -336,6 +524,16 @@
                   {/if}
                 </button>
               </Tooltip>
+              <Tooltip text="Rewind conversation to this turn (Esc Esc)" position="top">
+                <button
+                  type="button"
+                  onclick={() => onOpenRewindModal ? onOpenRewindModal(msg.id) : modalManager.open("rewind")}
+                  class="p-1 rounded hover:bg-surface-elevated text-secondary-theme hover:text-amber-400 transition-colors cursor-pointer flex items-center gap-1"
+                  aria-label="Rewind to prompt"
+                >
+                  <History size={11} />
+                </button>
+              </Tooltip>
               <Tooltip text="Edit prompt" position="top">
                 <button
                   type="button"
@@ -375,6 +573,17 @@
                 {/if}
               </div>
               <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Tooltip text="Rewind to this turn (Esc Esc)" position="top">
+                  <button
+                    type="button"
+                    onclick={() => onOpenRewindModal ? onOpenRewindModal(msg.id) : modalManager.open("rewind")}
+                    class="p-1 rounded hover:bg-surface-hover text-secondary-theme hover:text-amber-400 transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+                    aria-label="Rewind to this turn"
+                  >
+                    <History size={13} />
+                    <span>Rewind</span>
+                  </button>
+                </Tooltip>
                 <Tooltip text={copiedMessageId === msg.id ? "Copied!" : "Copy response"} position="top">
                   <button
                     type="button"
@@ -425,6 +634,18 @@
           <Sparkles size={14} />
         </div>
         <div class="max-w-3xl bg-bubble-assistant border border-bubble-assistant rounded-2xl rounded-tl-sm px-5 py-4 text-xs text-primary-theme shadow-xs w-full">
+          {#if streamingSteeringHints && streamingSteeringHints.length > 0}
+            <div class="mb-3 space-y-1.5">
+              {#each streamingSteeringHints as hint}
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+                  <Compass size={13} class="text-amber-400 shrink-0" />
+                  <span class="font-semibold text-amber-400">Steering injected:</span>
+                  <span class="truncate">{hint}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
           {#if streamingToolCalls && streamingToolCalls.length > 0}
             <div class="mb-3 space-y-1">
               {#each streamingToolCalls as step (step.id)}
@@ -483,6 +704,23 @@
     </div>
   {/if}
 
+  <!-- Plan Mode Interactive Workbench -->
+  <PlanWorkbench
+    {workspace}
+    sessionId={session?.id}
+    approvalMode={effectiveApprovalMode}
+    tasks={currentTasks}
+    isOpen={isPlanWorkbenchOpen}
+    onTasksChange={handleUpdateTasks}
+    onExecutePlan={(targetMode, tasks) => {
+      wasExecutingPlan = true;
+      isPlanWorkbenchOpen = false;
+      onExecutePlan?.(targetMode, tasks);
+    }}
+    onRefinePlan={() => composerRef?.focus()}
+    onClose={() => (isPlanWorkbenchOpen = false)}
+  />
+
   <!-- Prompt Input Bar -->
   <ChatPromptComposer
     bind:this={composerRef}
@@ -492,12 +730,16 @@
     {approvalMode}
     {onTriggerDebugDoctor}
     {onDebugErrorDetected}
+    {onSteerPrompt}
     onSendPrompt={(prompt) => {
       isUserScrolledUp = false;
       tick().then(() => scrollToBottom(true));
       onSendPrompt(prompt);
     }}
-    {onCancelPrompt}
+    onCancelPrompt={() => {
+      wasExecutingPlan = false;
+      onCancelPrompt();
+    }}
   />
 
   <!-- Terminal Drawer -->

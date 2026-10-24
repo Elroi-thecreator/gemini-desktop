@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Workspace, ApprovalMode, WorkspacePathValidation } from "$lib/types";
-  import { X, Plus, Trash2, Check } from "lucide-svelte";
+  import { X, Plus, Trash2, Check, Bell, BellRing } from "lucide-svelte";
+  import { isNotificationSettingEnabled, setNotificationSetting, notifyBackgroundTaskComplete } from "$lib/utils/notifications";
   import { dialogManager } from "$lib/dialog.svelte";
   import { invoke } from "@tauri-apps/api/core";
 
@@ -103,6 +104,21 @@
   let customModelInput = $state("");
   let lastSyncedWorkspaceId = $state<string | null>(null);
   let isSaving = $state(false);
+  let notificationsEnabled = $state(true);
+
+  $effect(() => {
+    if (isOpen) {
+      notificationsEnabled = isNotificationSettingEnabled();
+    }
+  });
+
+  async function handleTestToast() {
+    await notifyBackgroundTaskComplete(
+      "Gemini Desktop",
+      "Native Windows Toast Notifications are enabled and working properly!",
+      true
+    );
+  }
 
   let canSave = $derived(
     editingWorkspace.name.trim().length > 0 &&
@@ -363,6 +379,42 @@
               placeholder="e.g. Always write production C# code following Microsoft coding conventions..."
               class="w-full px-3 py-2 bg-app border border-theme-default rounded-lg text-primary-theme focus:outline-none focus:border-accent-theme resize-none"
             ></textarea>
+          </div>
+
+          <!-- Windows Desktop Toast Notifications -->
+          <div class="p-3 bg-app border border-subtle rounded-lg space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <Bell size={14} class="text-accent-theme" />
+                <span class="font-medium text-primary-theme">Desktop Toast Notifications</span>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={notificationsEnabled}
+                  onchange={(e) => {
+                    const checked = (e.target as HTMLInputElement).checked;
+                    notificationsEnabled = checked;
+                    setNotificationSetting(checked);
+                  }}
+                  class="sr-only peer"
+                />
+                <div class="w-8 h-4 bg-surface-hover peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-accent-theme"></div>
+              </label>
+            </div>
+            <p class="text-[11px] text-muted-theme">
+              Receive native Windows toast notifications when background turns finish or require tool permission while you are working in other apps.
+            </p>
+            <div class="pt-1">
+              <button
+                type="button"
+                onclick={handleTestToast}
+                class="px-2.5 py-1 text-[11px] rounded bg-surface hover:bg-surface-elevated text-secondary-theme hover:text-primary-theme border border-theme-default transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <BellRing size={12} class="text-accent-theme" />
+                <span>Test Windows Toast</span>
+              </button>
+            </div>
           </div>
 
           <div class="pt-2 flex items-center justify-between border-t border-subtle">

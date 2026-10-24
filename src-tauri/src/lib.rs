@@ -30,8 +30,10 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(state)
         .setup(|app| {
+            commands::ensure_windows_aumid();
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 commands::register_global_debug_hotkey(handle);
@@ -51,6 +53,8 @@ pub fn run() {
             save_message,
             send_prompt,
             cancel_prompt,
+            steer_prompt,
+            rewind_turn,
             respond_tool_permission,
             get_prompts,
             search_history,
@@ -76,7 +80,9 @@ pub fn run() {
             detect_gcloud_status,
             test_gemini_cli,
             read_file_snippet,
-            get_clipboard_text
+            get_clipboard_text,
+            show_toast_notification,
+            focus_app_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

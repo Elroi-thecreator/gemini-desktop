@@ -17,8 +17,10 @@
     ParsedDebugError,
     FileSnippetResult,
     ToolCallPayload,
+    PlanTaskItem,
   } from "$lib/types";
   import { parseDebugError } from "$lib/utils/debugParser";
+  import { notifyBackgroundTaskComplete, setupNotificationActionListener } from "$lib/utils/notifications";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
   import SolutionExplorer from "$lib/components/SolutionExplorer.svelte";
@@ -28,6 +30,7 @@
   import ThemeModal from "$lib/components/ThemeModal.svelte";
   import McpModal from "$lib/components/McpModal.svelte";
   import CliSetupModal from "$lib/components/CliSetupModal.svelte";
+  import RewindModal from "$lib/components/RewindModal.svelte";
   import UpdateNotificationBanner from "$lib/components/UpdateNotificationBanner.svelte";
   import { themeManager } from "$lib/theme.svelte";
   import { dialogManager } from "$lib/dialog.svelte";
@@ -93,15 +96,19 @@
   let unlistenModeUpdate: UnlistenFn | null = null;
   let unlistenStderr: UnlistenFn | null = null;
   let unlistenDebugDoctor: UnlistenFn | null = null;
+  let unlistenSteer: UnlistenFn | null = null;
+  let unlistenRewind: UnlistenFn | null = null;
 
   // Instant Debug Doctor State
   let activeDebugError = $state<ParsedDebugError | null>(null);
   let activeFileSnippet = $state<FileSnippetResult | null>(null);
   let dismissedErrorSignature = $state<string | null>(null);
+  let rewindTargetMessageId = $state<string | null>(null);
 
   onMount(async () => {
     // 0. Initialize theme & dynamic app version
     themeManager.init();
+    setupNotificationActionListener();
     getAppVersion().then((ver) => {
       if (ver) appVersion = ver;
     });
@@ -155,7 +162,17 @@
           };
         }
 
+        // When a turn is canceled due to mid-flight steering, ignore the cancellation completion event
+        if (streamStates[session_id].isSteering && is_done) {
+          streamStates[session_id].isSteering = false;
+          streamStates[session_id].isStreaming = true;
+          return;
+        }
+
         let cleanDelta = delta || "";
+        if (cleanDelta.includes("*(Prompt cancelled)*") && (streamStates[session_id]?.steeringHints?.length || streamStates[session_id]?.isSteering)) {
+          cleanDelta = "";
+        }
         if (cleanDelta.includes("[MODE_UPDATE]")) {
           cleanDelta = cleanDelta.replace(/\[MODE_UPDATE\]\s*[a-zA-Z0-9_]*/g, "");
         }
@@ -267,6 +284,10 @@
             };
           }
           streamStates[sessionId].toolPermission = payload;
+          notifyBackgroundTaskComplete(
+            "Action Required",
+            `Gemini is requesting permission for: ${payload.tool_name || "Tool execution"}`
+          );
         }
       }
     );
@@ -531,6 +552,8 @@
     if (unlistenModeUpdate) unlistenModeUpdate();
     if (unlistenStderr) unlistenStderr();
     if (unlistenDebugDoctor) unlistenDebugDoctor();
+    if (unlistenSteer) (unlistenSteer as any)();
+    if (unlistenRewind) (unlistenRewind as any)();
     window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("keydown", handleGlobalShortcuts);
     window.removeEventListener("message", handleVsMessage);
@@ -657,6 +680,9 @@
     if (!confirmed) return;
     await invoke("delete_session", { sessionId: session.id });
     delete pendingUserMessages[session.id];
+    try {
+      localStorage.removeItem(`gemini_plan_tasks_${session.id}`);
+    } catch {}
     sessions = sessions.filter((s) => s.id !== session.id);
     if (activeSessionId === session.id) {
       if (sessions.length > 0) {
@@ -666,6 +692,78 @@
         messages = [];
       }
     }
+  }
+
+  async function handleSteerPrompt(hint: string) {
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
+    const stream = streamStates[sid];
+    if (stream) {
+      const current = stream.steeringHints || [];
+      stream.steeringHints = [...current, hint];
+      stream.isSteering = true;
+      stream.streamingText += `\n\n---\n> 🎯 **Steering Injected:** *"${hint}"*\n\n`;
+      streamStates = { ...streamStates };
+    }
+    try {
+      await invoke("steer_prompt", { sessionId: sid, hint });
+    } catch (e: any) {
+      console.error("Failed to send steering hint:", e);
+      if (streamStates[sid]) {
+        streamStates[sid].isSteering = false;
+        streamStates = { ...streamStates };
+      }
+    }
+  }
+
+  async function handleRewound(
+    targetMessageId: string,
+    rewoundCount: number,
+    restoredFiles: string[],
+    prevPrompt?: string | null
+  ) {
+    if (!activeSessionId) return;
+    const loaded = await invoke<Message[]>("get_session_messages", { sessionId: activeSessionId });
+    messages = loaded;
+
+    if (prevPrompt) {
+      window.dispatchEvent(new CustomEvent("gemini-prefill-prompt", { detail: prevPrompt }));
+    }
+    if (restoredFiles.length > 0) {
+      await refreshWorkspaceFiles();
+    }
+    await dialogManager.alert(
+      `Rewound ${rewoundCount} message(s)${restoredFiles.length > 0 ? ` and restored ${restoredFiles.length} file(s) in workspace.` : "."}`,
+      "Turn Rewound"
+    );
+  }
+
+  async function handleExecutePlan(targetMode: "auto_edit" | "default", tasks?: PlanTaskItem[]) {
+    if (!activeWorkspace) return;
+    const updatedWs: Workspace = {
+      ...activeWorkspace,
+      approval_mode: targetMode,
+    };
+    await handleSaveWorkspace(updatedWs);
+
+    if (!tasks || tasks.length === 0) {
+      await dialogManager.alert("Please add at least one task to the plan before executing.", "No Tasks in Plan");
+      return;
+    }
+
+    const pendingTasks = tasks.filter((t) => !t.completed);
+    const completedTasks = tasks.filter((t) => t.completed);
+
+    let prompt = `Plan approved. Proceed with implementation of the approved tasks in ${targetMode === "auto_edit" ? "Auto-Edit" : "Ask"} mode:\n\n`;
+    if (pendingTasks.length > 0) {
+      prompt += `Tasks to implement:\n${pendingTasks.map((t) => `- [ ] ${t.text}`).join("\n")}\n\n`;
+    }
+    if (completedTasks.length > 0) {
+      prompt += `Already completed / skip:\n${completedTasks.map((t) => `- [x] ${t.text}`).join("\n")}\n\n`;
+    }
+    prompt += `Please begin implementing the pending tasks step-by-step.`;
+
+    await handleSendPrompt(prompt);
   }
 
   async function handleSendPrompt(prompt: string) {
@@ -700,7 +798,7 @@
 
     // Add user message to UI immediately
     const userMsg: Message = {
-      id: "temp-" + (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(36).slice(2))),
+      id: "msg-" + (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random().toString(36).slice(2))),
       session_id: targetSessionId,
       role: "user",
       content: prompt,
@@ -734,6 +832,7 @@
         prompt,
         model: targetModel,
         approvalMode,
+        messageId: userMsg.id,
       });
     } catch (err: any) {
       if (streamStates[targetSessionId]) {
@@ -771,9 +870,24 @@
     };
     await invoke("save_message", { msg: assistantMsg });
 
-    // If the user is currently viewing this session, update visible messages immediately
-    if (activeSessionId === sessionId) {
-      messages = [...messages, assistantMsg];
+    // Notify user via native Windows toast if window is backgrounded / minimized
+    const wsName = activeWorkspace?.name || "Gemini Desktop";
+    const cleanSnippet = finalText.replace(/[#*`_>]/g, "").trim();
+    const snippet = cleanSnippet.length > 90 ? `${cleanSnippet.slice(0, 87)}...` : cleanSnippet;
+    notifyBackgroundTaskComplete(`${wsName} — Response Complete`, snippet);
+
+    // Reload latest persisted messages from SQLite to ensure 100% ID synchronization across turns
+    try {
+      const loaded = await invoke<Message[]>("get_session_messages", { sessionId });
+      if (activeSessionId === sessionId && loaded.length > 0) {
+        messages = loaded;
+      } else if (activeSessionId === sessionId) {
+        messages = [...messages, assistantMsg];
+      }
+    } catch {
+      if (activeSessionId === sessionId) {
+        messages = [...messages, assistantMsg];
+      }
     }
   }
 
@@ -919,6 +1033,7 @@
       {isStreaming}
       {streamingText}
       {streamingToolCalls}
+      streamingSteeringHints={activeStreamState.steeringHints || []}
       {toolPermission}
       {showSidebar}
       {approvalMode}
@@ -934,11 +1049,24 @@
       onDebugErrorDetected={(err) => loadAndDisplayDebugError(err)}
       onSendPrompt={handleSendPrompt}
       onCancelPrompt={handleCancelPrompt}
+      onSteerPrompt={handleSteerPrompt}
+      onExecutePlan={handleExecutePlan}
       onToolResponse={handleToolResponse}
       onExport={handleExport}
       onOpenMcpModal={() => modalManager.open("mcp")}
+      onOpenRewindModal={(targetId?: string) => {
+        rewindTargetMessageId = targetId ?? null;
+        modalManager.open("rewind");
+      }}
     />
-  </div>
+    <RewindModal
+    workspace={activeWorkspace}
+    session={activeSession}
+    {messages}
+    selectedMessageId={rewindTargetMessageId}
+    onRewound={handleRewound}
+  />
+</div>
 
   <!-- Right Visual Studio 2022 Workspace Explorer -->
   <SolutionExplorer

@@ -1,0 +1,45 @@
+id: PROD-NOTIF-001
+type: product_standard
+title: Windows Native Toast Notifications, Unpackaged AppUserModelID & Background Turn Awareness Standard
+domain: product
+status: approved
+version: 1.0.0
+authority:
+  level: official
+  confidence: high
+owner:
+  team: product_security_team
+
+applies_to:
+  - frontend
+  - backend
+  - notifications
+  - security
+
+rule:
+  "The application must provide native Windows toast notifications (via `tauri-plugin-notification` and WinRT Toast bridge) to alert users when background tasks complete or require interactive tool permission, while adhering to enterprise CrowdStrike Falcon EDR safe execution standards."
+
+do:
+  - "Register `tauri-plugin-notification` in the Tauri backend and request `notification:default` permission in capabilities configuration."
+  - "Surface native Windows toast notifications exclusively when the application window is in the background or minimized (`!document.hasFocus()`), preventing redundant screen clutter when the user is actively viewing the chat."
+  - "Notify users when an autonomous agent turn or implementation plan finishes processing in the background, including the workspace name and a concise response preview."
+  - "Notify users with an 'Action Required' toast when an agent execution halts for interactive tool permission approval in Ask mode while the window is unfocused."
+  - "Provide a persistent toggle in Workspace Settings allowing users to enable or disable toast notifications, accompanied by a 'Test Windows Toast' verification CTA."
+  - "Implement click-to-activate handling (`on_activated` / `onAction`): restore (`SW_RESTORE`), unminimize, and bring the Gemini Desktop window directly to the foreground when the toast notification is clicked."
+  - "Configure the Application User Model ID (AUMID: `com.geminidesktop.app`) in-process using native Win32 APIs (`RegCreateKeyExW` / `RegSetValueExW` and `SetCurrentProcessExplicitAppUserModelID`) under `HKEY_CURRENT_USER`, ensuring clean attribution as 'Gemini Desktop' in testing mode without relying on external scripts."
+  - "Rely on standard Windows Installer (MSI) registration in production, ensuring native Start Menu shortcut association and zero EDR heuristic warnings."
+
+dont:
+  - "Never spawn external shell processes (`reg.exe`, `cmd.exe`, or `powershell.exe`) to configure notification registry keys at runtime, preventing MITRE ATT&CK T1112 EDR heuristic alerts."
+  - "Never trigger notifications when the application window is active and focused."
+  - "Never require administrator elevation (`UAC`) or write to `HKEY_LOCAL_MACHINE` for notification delivery."
+  - "Never drop temporary VBScript or PowerShell toast scripts in volatile directories (`%TEMP%`)."
+
+reason:
+  "Developers frequently switch to IDEs, browsers, or documentation while autonomous agents run complex workflows. Background notifications provide timely awareness without security vulnerabilities or distracting active foreground users."
+
+related_items:
+  - PROD-SETUP-001
+  - ARCH-SYS-001
+  - DEV-RUST-001
+  - DEV-SVELTE-001

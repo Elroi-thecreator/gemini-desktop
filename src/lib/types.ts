@@ -92,6 +92,8 @@ export interface SessionStreamState {
   isStreaming: boolean;
   toolPermission: ToolPermissionPayload | null;
   toolCalls?: ToolExecutionStep[];
+  steeringHints?: string[];
+  isSteering?: boolean;
 }
 
 export interface GeminiEnvStatus {
@@ -225,5 +227,19 @@ export interface ParsedDebugError {
   rawTrace: string;
   sourceFramework?: "dotnet" | "cpp" | "node" | "python" | "rust" | "generic";
 }
+
+export interface RewindResult {
+  rewound_messages_count: number;
+  restored_files: string[];
+  previous_prompt?: string | null;
+}
+
+export interface PlanTaskItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  category?: string;
+}
+
 
 
