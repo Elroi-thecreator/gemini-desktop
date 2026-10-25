@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_delete_messages_from_rewind() {
-        let db = DbManager::new().unwrap();
+        let db = DbManager::new_in_memory().expect("in-memory db initialization failed");
         let ws_id = format!("ws-{}", Uuid::new_v4());
 
         db.save_workspace(Workspace {
