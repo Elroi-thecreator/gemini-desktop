@@ -152,6 +152,12 @@
   let currentModeConfig = $derived(getModeConfig(effectiveApprovalMode));
   let ModeIcon = $derived(currentModeConfig.icon);
 
+  let folderBasename = $derived(
+    workspace?.path
+      ? workspace.path.split(/[\/\\]/).filter(Boolean).pop() || workspace.path
+      : "C:\\"
+  );
+
   export function insertFileMention(relPath: string) {
     const mention = `@${relPath} `;
     if (inputPrompt && !inputPrompt.endsWith(" ")) {
@@ -437,10 +443,10 @@
       class="w-full px-3.5 py-2.5 bg-transparent text-primary-theme placeholder:text-muted-theme text-xs focus:outline-none resize-none font-sans select-text"
     ></textarea>
 
-    <div class="flex items-center justify-between px-3 py-2 border-t border-subtle text-[11px] text-muted-theme">
-      <div class="flex items-center gap-2.5 relative">
+    <div class="flex items-center justify-between gap-2 px-3 py-2 border-t border-subtle text-[11px] text-muted-theme min-w-0">
+      <div class="flex items-center gap-2 min-w-0 flex-1">
         <!-- Attachment Dropdown Action Button -->
-        <div class="relative">
+        <div class="relative shrink-0">
           <Tooltip
             text="Attach Context"
             subtext="Select workspace files, folders, or git diffs (@git:diff, @git:staged) to include in prompt"
@@ -450,11 +456,11 @@
             <button
               type="button"
               onclick={() => (showAttachMenu = !showAttachMenu)}
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors border border-theme-default cursor-pointer text-xs"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-surface-hover text-secondary-theme hover:text-primary-theme transition-colors border border-theme-default cursor-pointer text-xs shrink-0"
             >
-              <Paperclip size={13} class="text-accent-theme" />
-              <span class="font-medium">Attach</span>
-              <ChevronDown size={11} class="opacity-60" />
+              <Paperclip size={13} class="text-accent-theme shrink-0" />
+              <span class="font-medium hidden sm:inline">Attach</span>
+              <ChevronDown size={11} class="opacity-60 shrink-0" />
             </button>
           </Tooltip>
 
@@ -549,38 +555,62 @@
             <button
               type="button"
               onclick={onTriggerDebugDoctor}
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/30 cursor-pointer text-xs"
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/30 cursor-pointer text-xs shrink-0"
             >
-              <Bug size={13} class="text-rose-400" />
-              <span class="font-medium">Debug Doctor</span>
+              <Bug size={13} class="text-rose-400 shrink-0" />
+              <span class="font-medium hidden md:inline">Debug Doctor</span>
             </button>
           </Tooltip>
         {/if}
 
         <Tooltip
-          text="Workspace Working Directory"
+          text={`Working Dir: ${workspace?.path || "C:\\"}`}
           subtext="Gemini CLI commands, MCP tools, and file paths execute relative to this root folder."
           position="top"
+          class="min-w-0 inline-flex items-center"
         >
-          <span class="cursor-help">Working Dir: <span class="text-secondary-theme font-mono">{workspace?.path || "C:\\"}</span></span>
+          <div
+            title={`Working Dir: ${workspace?.path || "C:\\"}`}
+            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-surface/80 border border-subtle/80 text-secondary-theme cursor-help min-w-0 max-w-[120px] sm:max-w-[200px]"
+          >
+            <Folder size={12} class="text-sky-400 shrink-0" />
+            <span class="font-mono text-[11px] truncate">{folderBasename}</span>
+          </div>
         </Tooltip>
 
-        <span class="text-muted-theme/40 select-none">&bull;</span>
+        <span class="text-muted-theme/40 select-none shrink-0 hidden xs:inline">&bull;</span>
 
         <Tooltip
           text={`Policy Approval Mode: ${currentModeConfig.label}`}
           subtext={`${currentModeConfig.description} (Change in Workspace Settings)`}
           position="top"
         >
-          <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-semibold cursor-default select-none {currentModeConfig.badgeClass}">
+          <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-semibold cursor-default select-none shrink-0 {currentModeConfig.badgeClass}">
             <ModeIcon size={11} class={currentModeConfig.iconClass} />
-            <span>{currentModeConfig.shortLabel}</span>
+            <span class="hidden sm:inline">{currentModeConfig.shortLabel}</span>
           </div>
         </Tooltip>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 shrink-0 ml-auto">
         {#if isStreaming}
+          {#if inputPrompt.trim()}
+            <Tooltip
+              text="Steer Active Agent"
+              subtext="Inject guidance or instruction into the active turn"
+              shortcut="Enter"
+              position="top"
+            >
+              <button
+                onclick={handleSteer}
+                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-xs transition-colors shadow-xs cursor-pointer"
+              >
+                <Compass size={12} />
+                <span>Steer</span>
+                <span class="text-[10px] opacity-75 font-mono">Enter</span>
+              </button>
+            </Tooltip>
+          {/if}
           <Tooltip
             text="Cancel Generation"
             subtext="Interrupt active model output or tool execution"

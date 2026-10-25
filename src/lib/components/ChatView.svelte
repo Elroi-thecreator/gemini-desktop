@@ -355,8 +355,8 @@
 
 <div class="flex-1 h-screen flex flex-col bg-app text-primary-theme overflow-hidden">
   <!-- Top Bar -->
-  <header class="h-14 px-6 border-b border-subtle flex items-center justify-between bg-surface/70 backdrop-blur-xs relative z-30">
-    <div class="flex items-center gap-3 truncate">
+  <header class="h-14 px-6 border-b border-subtle flex items-center justify-between gap-3 bg-surface/70 backdrop-blur-xs relative z-30">
+    <div class="flex items-center gap-3 min-w-0">
       {#if onToggleSidebar}
         <Tooltip
           text={showSidebar ? "Collapse Sidebar" : "Expand Sidebar"}
@@ -381,13 +381,13 @@
         {session?.title || "Select or start a new session"}
       </h2>
       {#if workspace}
-        <span class="text-[11px] px-2 py-0.5 rounded-full bg-surface-elevated text-accent-theme font-mono border border-subtle">
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-surface-elevated text-accent-theme font-mono border border-subtle shrink-0 hidden sm:inline-block">
           {workspace.name} &bull; {workspace.model}
         </span>
       {/if}
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 shrink-0">
       <!-- Execution Approval Mode Status Badge (Static indicator, configured in Workspace Settings) -->
       <Tooltip
         text={`Policy Approval Mode: ${currentModeConfig.label}`}
